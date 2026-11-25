@@ -1,7 +1,10 @@
 import { RUNTIME_TRACKED_STABLECOINS, RUNTIME_ACTIVE_META_BY_ID } from "../shared/lib/stablecoins/runtime-registry";
+import listingPolicyAsset from "../shared/data/stablecoins/listing-policy.json";
 import { CHAIN_META } from "../shared/lib/chains";
 import { canonicalSubjectUrl, parseSubject } from "../shared/lib/selection-link";
 import { nightShell, wantsNightPoster } from "./_poster";
+
+const TOKENIZED_FUND_IDS = new Set<string>(listingPolicyAsset.fundIds);
 
 /**
  * Per-selection social cards for the app shell at `/`.
@@ -61,6 +64,7 @@ const PLACE_NAMES: Record<string, string> = {
   "storm-mast": "Storm-signal Station", "wreck-cove": "Wreck Cove", "far-ports": "The Far Ports", registry: "The Registry",
   harbourmaster: "Harbourmaster’s Office", slipway: "The Shipyard", "tide-gauge": "Tide Gauge", mint: "The Mint", burn: "The Burn",
   chartroom: "The Chart Room", keeperslog: "The Keeper’s Log", "the-roads": "The Roads",
+  warehouse: "Bonded Warehouse", "reserve-anchorage": "Reserve Anchorage",
 };
 
 /**
@@ -93,7 +97,9 @@ export function socialCardForSelection(rawSelection: string | null): SocialCardC
     if (!meta) return null;
     name = meta.symbol === meta.name ? meta.symbol : `${meta.name} (${meta.symbol})`;
     title = `${meta.symbol} — ${meta.name} in PharosVille`;
-    description = `Watch ${name} in PharosVille: the water under its hull is peg risk, the harbour it docks in is its chain, and the lighthouse beam reads the fleet's stability.`;
+    description = TOKENIZED_FUND_IDS.has(subject.id)
+      ? `Inspect ${name} in PharosVille's Reserve Anchorage: a tokenized fund anchored off the Bonded Warehouse, tracked separately from the core stablecoin fleet.`
+      : `Watch ${name} in PharosVille: the water under its hull is peg risk, the harbour it docks in is its chain, and the lighthouse beam reads the fleet's stability.`;
   } else if (subject.kind === "place") {
     if (!Object.hasOwn(PLACE_NAMES, subject.id)) return null;
     name = PLACE_NAMES[subject.id];

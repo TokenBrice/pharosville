@@ -2,27 +2,39 @@
  * THE SHIPYARD'S ORDER BOOK (P6 D20, unified into `npm run sync:pharos-watch`): the pharos-watch registry's pre-launch
  * coins → src/harbour/data/prelaunch.json. A library step of scripts/harbour/sync-pharos-watch.mjs (pure: no I/O).
  *
- * Milestones keep date / type / title only (the descriptions are long-form and live on pharos.watch/upcoming).
+ * Milestones keep date / type / title and optional validated https sourceUrl (the long-form descriptions live on
+ * pharos.watch/upcoming).
  * The registry carries no issuer field: `issuer` is the jurisdiction's country when stated (the UI may show it as such).
  * `logo` comes from the already-synced data/logos.json, `brandColor` from data/brand-colors.json ("light|dark" pairs:
  * the first is the brand colour on a light ground).
  */
 export const SOURCE_LABEL = "pharos-watch shared/data/stablecoins/coins.generated.json (status: pre-launch)";
-const PHASES = new Set(["announced", "testnet", "auditing", "beta", "launching-soon"]);
+const PHASES = new Set(["announced", "testnet", "auditing", "beta", "launching-soon", "launched"]);
 /** YYYY, YYYY-MM, YYYY-MM-DD, or a quarter / half: 2026-Q4, 2027-H1. */
 const DATE = /^\d{4}(-(\d{2}(-\d{2})?|Q[1-4]|H[12]))?$/;
+
+function safeHttpsUrl(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === "https:" && !parsed.username && !parsed.password ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * @param {unknown} rows the registry (coins.generated.json)
  * @param {Record<string, string>} logos data/logos.json after the logo step
  * @param {Record<string, string>} brand data/brand-colors.json after the colour step
+ * @param {Record<string, string>} [listingClassById] Policy 2.0 listing classes (excluded rows are omitted)
  * @returns {{ book: object, problems: string[] }} the book, and every schema violation found on the way
  */
-export function buildPrelaunchBook(rows, logos, brand) {
+export function buildPrelaunchBook(rows, logos, brand, listingClassById = {}) {
   const problems = [];
   const all = Array.isArray(rows) ? rows : rows && typeof rows === "object" ? Object.values(rows) : null;
   if (!all) return { book: null, problems: ["coins.generated.json is neither an array nor an object"] };
-  const pre = all.filter((r) => r && r.status === "pre-launch");
+  const pre = all.filter((r) => r && r.status === "pre-launch" && listingClassById?.[r.id] !== "excluded");
   const seen = new Set();
   const coins = [];
   for (const r of [...pre].sort((a, b) => (a.id < b.id ? -1 : 1))) {
@@ -37,7 +49,10 @@ export function buildPrelaunchBook(rows, logos, brand) {
     if (peg !== null && typeof peg !== "string") problems.push(`${r.id}: flags.pegCurrency is not a string`);
     const milestones = (Array.isArray(r.milestones) ? r.milestones : [])
       .filter((m) => m && typeof m.date === "string" && typeof m.title === "string")
-      .map((m) => ({ date: m.date, type: m.type ?? "milestone", title: m.title }))
+      .map((m) => {
+        const sourceUrl = safeHttpsUrl(m.sourceUrl);
+        return { date: m.date, type: m.type ?? "milestone", title: m.title, ...(sourceUrl ? { sourceUrl } : {}) };
+      })
       .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     const logo = typeof logos[r.id] === "string" ? logos[r.id] : null;
     coins.push({

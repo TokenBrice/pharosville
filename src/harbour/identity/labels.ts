@@ -46,8 +46,8 @@ export function lineWidth(text: string, face: Face, cap: number, track: number, 
   return w + Math.max(0, n - 1) * track * em;
 }
 
-const ZONE_CAP: Record<string, number> = { shoals: 15, farPorts: 18, wreckCove: 14, roads: 19 };
-const ZONE_INK: Record<string, number> = { shoals: 1.08, farPorts: 0.9, wreckCove: 0.92, roads: 0.95 };
+const ZONE_CAP: Record<string, number> = { shoals: 15, farPorts: 18, wreckCove: 14, roads: 19, reserveAnchorage: 14 };
+const ZONE_INK: Record<string, number> = { shoals: 1.08, farPorts: 0.9, wreckCove: 0.92, roads: 0.95, reserveAnchorage: 0.92 };
 
 export function labelSpecs(zones: readonly SeaZone[]): LabelSpec[] {
   const out: LabelSpec[] = [];
@@ -294,7 +294,7 @@ export interface PlaceEnv {
 }
 
 /** Who keeps their place when two names want the same water. */
-export const ZONE_PRIORITY: Record<string, number> = { roads: 5, shoals: 5, wreckCove: 4, farPorts: 4, open: 1 };
+export const ZONE_PRIORITY: Record<string, number> = { roads: 5, shoals: 5, wreckCove: 4, farPorts: 4, reserveAnchorage: 4, open: 1 };
 
 /**
  * Below this fit a placement is not the name's own water (half on land, across a pier, out of its zone).

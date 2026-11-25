@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
+import LISTING_POLICY from "virtual:pharosville-listing-policy";
+import realLayoutJson from "../data/layout.json";
+import type { HarbourLayout } from "../layout/types";
 import { buildHarbourModel } from "../model/build";
-import { buildSimLayout, type Slot } from "./layout-graph";
+import { buildSimLayout, slotsOverlap, type Slot } from "./layout-graph";
+import { hullClearance, type CoastGrid } from "./obstacles";
+import { slotFootprint } from "./footprint";
 import type { PathRec } from "./path";
 import { buildPlan, hydratePlan, CYCLE_S, SEG_DOCK, SPEED, type PlanData } from "./plan";
 import { EV_LAUNCH, EV_TO_SHOALS, HarbourSim, PH_ANCHORED, PH_APPROACHING, PH_CASTING_OFF, PH_DOCKED, PH_MOORED, PH_SAILING, type PoseBuffer } from "./sim";
@@ -535,5 +541,136 @@ describe("prepared refresh parity", () => {
     for (const delta of [0, 16, 1000, 12_000, 60_000, 300_000]) {
       expect(prepared.poseAt(at + delta)).toStrictEqual(direct.poseAt(at + delta));
     }
+  }, 60_000);
+});
+
+describe("Reserve Anchorage simulation", () => {
+  const realLayout = realLayoutJson as unknown as HarbourLayout;
+  const realPiered = realLayout.piers.map((p) => p.chain);
+
+  async function realCoast(): Promise<CoastGrid> {
+    const { data, info } = await sharp(new URL("../../../public" + realLayout.sea!.sdf, import.meta.url).pathname)
+      .ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const grid = new Uint8Array(info.width * info.height);
+    for (let y = 0; y < info.height; y++) {
+      for (let x = 0; x < info.width; x++) {
+        grid[y * info.width + x] = data[((info.height - 1 - y) * info.width + x) * 4];
+      }
+    }
+    return { data: grid, size: info.width, bounds: realLayout.sea!.bounds as [number, number, number, number] };
+  }
+
+  it("authors 20 conflict-free Reserve Anchorage slots outside core pools and anchors all 13 real funds (and up to 20 funds) cleanly", async () => {
+    const coast = await realCoast();
+    const L = buildSimLayout(realLayout, coast);
+    expect(L.reserve).toHaveLength(20);
+    // Reserve Anchorage slots never enter core pools
+    const poolSlots = new Set([...L.pools.values()].flatMap((m) => [...m.values()].flat()));
+    const largeFoot = slotFootprint("large", L);
+    for (const idx of L.reserve) {
+      const s = L.slots[idx];
+      expect(s.kind).toBe("reserve");
+      expect(s.mode).toBe("anchor");
+      expect(s.swing).toBe(2.5);
+      expect(poolSlots.has(idx)).toBe(false);
+      expect(s.conflicts).toEqual([]);
+      expect(s.x).toBeGreaterThanOrEqual(195);
+      expect(s.x).toBeLessThanOrEqual(315);
+      expect(s.z).toBeGreaterThanOrEqual(-335);
+      expect(s.z).toBeLessThanOrEqual(-210);
+    }
+    for (let i = 0; i < L.reserve.length; i++) {
+      for (let j = i + 1; j < L.reserve.length; j++) {
+        expect(slotsOverlap(L.slots[L.reserve[i]], largeFoot, L.slots[L.reserve[j]], largeFoot)).toBe(false);
+      }
+    }
+
+    const coreCoins = makeCoins({ n: 80 });
+    const fundRows13 = LISTING_POLICY.fundIds.map((id, k) => ({
+      id,
+      name: `Fund ${k}`,
+      symbol: `F${k}`,
+      pegType: "peggedUSD",
+      circulating: { peggedUSD: (20 - k) * 1e8 },
+      chainCirculating: { Ethereum: { current: (20 - k) * 1e8 } },
+      chains: ["Ethereum"],
+    }));
+    const extra7 = Array.from({ length: 7 }, (_, k) => ({
+      id: `extra-tokenized-fund-${k}`,
+      name: `Extra Fund ${k}`,
+      symbol: `EF${k}`,
+      pegType: "peggedUSD",
+      circulating: { peggedUSD: (7 - k) * 1e8 },
+      chainCirculating: { Ethereum: { current: (7 - k) * 1e8 } },
+      chains: ["Ethereum"],
+    }));
+    const extraGrades = extra7.map((c) => ({ id: c.id, grade: "NR" as const, ratingStatus: "not-rated", notRatedReason: "tokenized-fund-not-graded" }));
+
+    // 1. All 13 real funds alongside core fleet
+    const p13 = makePayloads({ coins: [...coreCoins, ...fundRows13] });
+    const m13 = buildHarbourModel(p13, T0_MS, { pieredChains: realPiered, dead: [] });
+    expect(m13.reserveCount).toBe(13);
+    const sim13 = new HarbourSim(m13, realLayout, T0_MS, coast, buildPlan);
+    for (const f of fundRows13) {
+      expect(sim13.plan.byId.get(f.id)?.kind).toBe("none");
+      expect(sim13.plan.byId.get(f.id)?.outing).toBe(false);
+    }
+
+    const p0 = sim13.poseAt(T0_MS);
+    const headings0 = new Map<string, number>();
+    for (let k = 0; k < fundRows13.length; k++) {
+      const id = fundRows13[k].id;
+      const i = sim13.indexOf(id);
+      const slot = sim13.slotOf(i)!;
+      expect(slot.id).toBe(`reserve/${String(k + 1).padStart(2, "0")}`);
+      expect(p0.phase[i]).toBe(PH_ANCHORED);
+      expect(p0.sailState[i]).toBe(0);
+      expect(p0.heel[i]).toBe(0);
+      expect(p0.speed[i]).toBe(0);
+      expect(p0.lines[i]).toBe(1);
+      expect(p0.event[i]).toBe(0);
+      expect(p0.outing[i]).toBe(0);
+      headings0.set(id, p0.heading[i]);
+    }
+
+    // 2. Late-arriving 7 more funds (20 total) settle directly into reserve/14..20 without Slipway launch
+    const p20 = makePayloads({ coins: [...coreCoins, ...fundRows13, ...extra7], nowMs: T0_MS + 60_000 });
+    p20.safetyGrades!.data!.grades.push(...extraGrades);
+    const m20 = buildHarbourModel(p20, T0_MS + 60_000, { pieredChains: realPiered, dead: [] });
+    expect(m20.reserveCount).toBe(20);
+    sim13.setModel(m20, T0_MS + 60_000);
+
+    const allFundIds = [...fundRows13, ...extra7].map((c) => c.id);
+    let swung = 0;
+    for (const dt of [0, 1000, 120_000, 600_000]) {
+      const p = sim13.poseAt(T0_MS + 60_000 + dt);
+      const fundIndices = allFundIds.map((id) => sim13.indexOf(id));
+      for (const i of fundIndices) {
+        const slot = sim13.slotOf(i)!;
+        expect(slot.kind).toBe("reserve");
+        expect(p.phase[i]).toBe(PH_ANCHORED);
+        expect(p.sailState[i]).toBe(0);
+        expect(p.heel[i]).toBe(0);
+        expect(p.speed[i]).toBe(0);
+        expect(p.lines[i]).toBe(1);
+        expect(p.event[i]).toBe(0);
+        expect(p.outing[i]).toBe(0);
+        const x = p.position[i * 3], z = p.position[i * 3 + 2];
+        expect(Math.abs(Math.hypot(x - slot.x, z - slot.z) - slot.swing)).toBeLessThanOrEqual(0.31);
+        expect(hullClearance(sim13.layout.hard, x, z, p.heading[i], largeFoot.loa, largeFoot.beam)).toBeGreaterThan(1);
+        const h0 = headings0.get(p.ids[i]);
+        if (dt === 600_000 && h0 != null && Math.abs(p.heading[i] - h0) > 0.005) swung++;
+      }
+      // Zero overlap between any two anchored reserve hulls
+      for (let a = 0; a < fundIndices.length; a++) {
+        for (let b = a + 1; b < fundIndices.length; b++) {
+          const ia = fundIndices[a], ib = fundIndices[b];
+          const d = Math.hypot(p.position[ia * 3] - p.position[ib * 3], p.position[ia * 3 + 2] - p.position[ib * 3 + 2]);
+          expect(d).toBeGreaterThan(largeFoot.loa);
+        }
+      }
+    }
+    expect(swung).toBeGreaterThan(8);
+    expect(doubleBooked(sim13.poseAt(T0_MS + 660_000))).toBe(0);
   }, 60_000);
 });

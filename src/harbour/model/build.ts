@@ -1,10 +1,25 @@
 import DEAD_STABLECOINS from "virtual:pharosville-cemetery";
+import LISTING_POLICY from "virtual:pharosville-listing-policy";
 import brandColors from "../../../data/brand-colors.json";
 import { logosById } from "../../lib/logos";
 import { fnv1a, hashColor, hullClassFor, pierIdFor, rigFor } from "./classify";
 import { asDewsBand, flowsReading, isMaiden, psiReading, seaStateReading, stormCones, stormFlags, tideFactsReading, weatherReading, weekAgoGapShare, wrecks } from "./readings";
 import { allTruth } from "./truth";
-import type { Boat, BoatState, BuildOptions, CircuitStop, Harbour, HarbourModel, HarbourPayloads } from "./types";
+import {
+  isCoreBoat,
+  isTokenizedFund,
+  type Boat,
+  type BoatState,
+  type BuildOptions,
+  type CircuitStop,
+  type CoinRow,
+  type FundMeta,
+  type Harbour,
+  type HarbourModel,
+  type HarbourPayloads,
+  type ReviewHoldEntry,
+  type VariantSummary,
+} from "./types";
 
 /** At most this many pier stops per circuit (D10); the rest of the supply sails to the Far Ports. */
 export const MAX_PIER_STOPS = 4;
@@ -14,14 +29,43 @@ export const MIN_STOP_SHARE = 0.05;
 export const CIRCUIT_SHARE_STEP = 0.05;
 export const DEFAULT_PIERED_CHAINS = 8;
 export const FAR: string = "far";
+export const RESERVE: string = "reserve";
 
 const BRAND = brandColors as Record<string, string>;
+
+const FUND_IDS = new Set(LISTING_POLICY.fundIds);
+const REVIEW_HOLD_IDS = new Set(LISTING_POLICY.reviewHoldIds);
+const VARIANT_IDS = new Set(LISTING_POLICY.variantIds);
+const EXCLUDED_IDS = new Set(LISTING_POLICY.excludedIds);
+const FROZEN_IDS = new Set(LISTING_POLICY.frozenIds);
+const PARENT_OF_VARIANT = new Map<string, { parentId: string; meta: (typeof LISTING_POLICY.variantsByParent)[string][number] }>();
+for (const [parentId, variants] of Object.entries(LISTING_POLICY.variantsByParent)) {
+  for (const meta of variants) PARENT_OF_VARIANT.set(meta.id, { parentId, meta });
+}
 
 function sumBuckets(obj: Record<string, number> | null | undefined): number {
   if (!obj) return 0;
   let s = 0;
   for (const v of Object.values(obj)) if (typeof v === "number" && Number.isFinite(v)) s += v;
   return s;
+}
+
+function prevDaySupply(obj: Record<string, number> | null | undefined): number | null {
+  if (obj == null) return null;
+  const vals = Object.values(obj);
+  return vals.length > 0 && vals.every((v) => Number.isFinite(v) && v >= 0) ? sumBuckets(obj) : null;
+}
+
+function sortedChainUsd(row: CoinRow): Array<[string, number]> {
+  return Object.entries(row.chainCirculating ?? {})
+    .map(([c, v]) => [c, typeof v?.current === "number" && v.current > 0 ? v.current : 0] as [string, number])
+    .filter(([, v]) => v > 0)
+    .sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
+}
+
+function brandColorOf(id: string): string {
+  const brand = BRAND[id]?.split("|")[0];
+  return brand && /^#[0-9a-f]{6}$/i.test(brand) ? brand.toLowerCase() : hashColor(id);
 }
 
 /** Largest-remainder quantization to `step`, every stop keeping at least one step. */
@@ -59,9 +103,29 @@ function circuitFor(chainUsd: Array<[string, number]>, supply: number, chains: r
   return cand.map(([c, s], i) => ({ chain: c, where: c ? pierIdFor(c) : FAR, share: q[i], rawShare: s / z }));
 }
 
+function fundMetaFor(a: CoinRow): FundMeta {
+  const meta = LISTING_POLICY.funds[a.id];
+  if (meta) {
+    return {
+      navToken: meta.navToken,
+      pegCurrency: meta.pegCurrency,
+      archetype: meta.archetype,
+      backedIds: [...meta.backedIds],
+      ...(meta.liveAdapterBackedIds ? { liveAdapterBackedIds: [...meta.liveAdapterBackedIds] } : {}),
+    };
+  }
+  return {
+    navToken: true,
+    pegCurrency: a.pegType.replace(/^pegged/, "") || "USD",
+    archetype: null,
+    backedIds: [],
+  };
+}
+
 /**
  * Payload → HarbourModel. Pure and deterministic in (payloads, nowMs, options).
- * Eligibility comes from the payload alone: every coin in /api/stablecoins is a boat.
+ * Applies Policy 2.0 classification: core stablecoins trade in the harbour, tokenized funds anchor
+ * in Reserve Anchorage outside core totals, and variants/review-hold/frozen/excluded rows stay off water.
  */
 export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, options: BuildOptions = {}): HarbourModel {
   // Freshness is judged against wall time; nowMs is the simulation clock (equal in production, offset by dev pins).
@@ -74,9 +138,74 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
   const dead = options.dead ?? DEAD_STABLECOINS;
   const deadIds = new Set(dead.map((d) => d.id));
 
-  // chain totals from the coins themselves, so circuits and harbours reconcile
-  const chainTot = new Map<string, number>();
+  const pegById = new Map((peg?.coins ?? []).map((c) => [c.id, c]));
+  const gradeById = new Map((grades?.grades ?? []).map((g) => [g.id, g]));
+
+  const coreRows: CoinRow[] = [];
+  const fundRows: CoinRow[] = [];
+  const variantsMap = new Map<string, VariantSummary[]>();
+  const reviewHold: ReviewHoldEntry[] = [];
+  let excludedCount = 0;
+
   for (const a of coins) {
+    if (deadIds.has(a.id)) {
+      coreRows.push(a);
+      continue;
+    }
+    if (a.frozen === true || FROZEN_IDS.has(a.id)) {
+      excludedCount++;
+      continue;
+    }
+    if (EXCLUDED_IDS.has(a.id) || /^\d+$/.test(a.id)) {
+      excludedCount++;
+      continue;
+    }
+    if (VARIANT_IDS.has(a.id)) {
+      excludedCount++;
+      const info = PARENT_OF_VARIANT.get(a.id);
+      if (info) {
+        const list = variantsMap.get(info.parentId) ?? [];
+        list.push({
+          id: info.meta.id,
+          symbol: info.meta.symbol,
+          name: info.meta.name,
+          kind: info.meta.kind,
+          supply: sumBuckets(a.circulating),
+        });
+        variantsMap.set(info.parentId, list);
+      }
+      continue;
+    }
+    if (REVIEW_HOLD_IDS.has(a.id)) {
+      excludedCount++;
+      reviewHold.push({
+        id: a.id,
+        symbol: a.symbol,
+        name: a.name,
+        supply: sumBuckets(a.circulating),
+      });
+      continue;
+    }
+    const gradeRow = gradeById.get(a.id);
+    if (FUND_IDS.has(a.id) || gradeRow?.notRatedReason === "tokenized-fund-not-graded") {
+      fundRows.push(a);
+      continue;
+    }
+    coreRows.push(a);
+  }
+
+  // Deterministic ordering for variantsByParent and reviewHold (supply desc, tie-break id asc)
+  const bySupplyDesc = <T extends { id: string; supply: number }>(x: T, y: T) =>
+    y.supply - x.supply || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+  const variantsByParent: Record<string, VariantSummary[]> = {};
+  for (const parentId of [...variantsMap.keys()].sort()) {
+    variantsByParent[parentId] = variantsMap.get(parentId)!.sort(bySupplyDesc);
+  }
+  reviewHold.sort(bySupplyDesc);
+
+  // Chain totals strictly from core stablecoins, so circuits, harbours and /api/chains reconcile
+  const chainTot = new Map<string, number>();
+  for (const a of coreRows) {
     for (const [c, v] of Object.entries(a.chainCirculating ?? {})) {
       const cur = v?.current;
       if (typeof cur === "number" && cur > 0) chainTot.set(c, (chainTot.get(c) ?? 0) + cur);
@@ -86,34 +215,29 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
   const pieredList = options.pieredChains ?? byChainSupply.slice(0, DEFAULT_PIERED_CHAINS).map(([c]) => c);
   const piered = new Set(pieredList);
 
-  const pegById = new Map((peg?.coins ?? []).map((c) => [c.id, c]));
-  const gradeById = new Map((grades?.grades ?? []).map((g) => [g.id, g.grade]));
   const coinsCurrent = truth.stablecoins.state === "current";
-  const gapShare = weekAgoGapShare(coins.filter((a) => !deadIds.has(a.id)));
+  const gapShare = weekAgoGapShare(coreRows.filter((a) => !deadIds.has(a.id)));
 
-  const boats: Boat[] = coins.map((a) => {
+  const coreBoats: Boat[] = coreRows.map((a) => {
     const supply = sumBuckets(a.circulating);
-    const chainUsd = Object.entries(a.chainCirculating ?? {})
-      .map(([c, v]) => [c, typeof v?.current === "number" && v.current > 0 ? v.current : 0] as [string, number])
-      .filter(([, v]) => v > 0)
-      .sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
+    const chainUsd = sortedChainUsd(a);
     const attributed = chainUsd.reduce((s, [, v]) => s + v, 0);
     const circuit = circuitFor(chainUsd, supply, a.chains ?? [], piered);
     const p = pegById.get(a.id);
     const sig = stress?.signals?.[a.id];
+    const gradeRow = gradeById.get(a.id);
     const activeDepeg = p?.activeDepeg === true;
     const state: BoatState = deadIds.has(a.id) ? "wrecked" : activeDepeg ? "shoals" : circuit.length === 1 ? "moored" : "circuit";
-    const brand = BRAND[a.id]?.split("|")[0];
     return {
       id: a.id,
       symbol: a.symbol,
       name: a.name,
       supply,
-      supplyPrevDay: a.circulatingPrevDay != null && Object.values(a.circulatingPrevDay).length > 0 && Object.values(a.circulatingPrevDay).every((v) => Number.isFinite(v) && v >= 0) ? sumBuckets(a.circulatingPrevDay) : null,
+      supplyPrevDay: prevDaySupply(a.circulatingPrevDay),
       hullClass: hullClassFor(supply),
       rig: rigFor(a.pegType),
       pegType: a.pegType,
-      brandColor: brand && /^#[0-9a-f]{6}$/i.test(brand) ? brand.toLowerCase() : hashColor(a.id),
+      brandColor: brandColorOf(a.id),
       logo: logosById[a.id] ?? null,
       chainShares: chainUsd.map(([chain, usd]) => ({ chain, usd, share: attributed > 0 ? usd / attributed : 0 })),
       circuit,
@@ -123,17 +247,58 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
       nullPeg: !p || typeof p.currentDeviationBps !== "number",
       dews: asDewsBand(sig?.band),
       dewsScore: typeof sig?.score === "number" ? sig.score : null,
-      grade: gradeById.get(a.id) ?? null,
+      grade: gradeRow?.grade ?? null,
+      ratingStatus: gradeRow?.ratingStatus ?? null,
+      gradeReason: gradeRow?.notRatedReason ?? null,
+      listingClass: "core-stablecoin",
+      fundMeta: null,
       state,
       maiden: state !== "wrecked" && isMaiden(a, coinsCurrent, gapShare),
       stormSignal: null,
     };
   });
-  boats.sort((a, b) => b.supply - a.supply || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  const reserveBoats: Boat[] = fundRows.map((a) => {
+    const supply = sumBuckets(a.circulating);
+    const chainUsd = sortedChainUsd(a);
+    const attributed = chainUsd.reduce((s, [, v]) => s + v, 0);
+    const gradeRow = gradeById.get(a.id);
+    return {
+      id: a.id,
+      symbol: a.symbol,
+      name: a.name,
+      supply,
+      supplyPrevDay: prevDaySupply(a.circulatingPrevDay),
+      hullClass: hullClassFor(supply),
+      rig: rigFor(a.pegType),
+      pegType: a.pegType,
+      brandColor: brandColorOf(a.id),
+      logo: logosById[a.id] ?? null,
+      chainShares: chainUsd.map(([chain, usd]) => ({ chain, usd, share: attributed > 0 ? usd / attributed : 0 })),
+      circuit: [{ chain: null, where: RESERVE, share: 1, rawShare: 1 }],
+      home: RESERVE,
+      pegDeviationBps: null,
+      activeDepeg: false,
+      nullPeg: true,
+      dews: null,
+      dewsScore: null,
+      grade: gradeRow?.grade ?? "NR",
+      ratingStatus: gradeRow?.ratingStatus ?? "not-rated",
+      gradeReason: gradeRow?.notRatedReason ?? "tokenized-fund-not-graded",
+      listingClass: "tokenized-fund",
+      fundMeta: fundMetaFor(a),
+      state: "reserve",
+      maiden: false,
+      stormSignal: null,
+    };
+  });
+
+  const boats: Boat[] = [...coreBoats, ...reserveBoats];
+  boats.sort(bySupplyDesc);
 
   const grand = byChainSupply.reduce((s, [, v]) => s + v, 0);
   const visitors = new Map<string, number>();
-  for (const b of boats) for (const s of b.circuit) if (s.chain) visitors.set(s.chain, (visitors.get(s.chain) ?? 0) + 1);
+  for (const b of coreBoats) for (const s of b.circuit) if (s.chain) visitors.set(s.chain, (visitors.get(s.chain) ?? 0) + 1);
   const chainRows = new Map((chainsPayload?.chains ?? []).map((c) => [c.name, c]));
   const harbours: Harbour[] = byChainSupply.map(([chain, usd]) => {
     const row = chainRows.get(chain);
@@ -149,10 +314,10 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
     };
   });
 
-  const live = boats.filter((b) => b.state !== "wrecked");
-  const flags = coinsCurrent ? stormFlags(live, truth.stress) : [];
+  const liveCore = boats.filter((b) => isCoreBoat(b) && b.state !== "wrecked");
+  const flags = coinsCurrent ? stormFlags(liveCore, truth.stress) : [];
   const flagById = new Map(flags.map((f) => [f.id, f.shape]));
-  for (const b of boats) b.stormSignal = flagById.get(b.id) ?? null;
+  for (const b of boats) b.stormSignal = isCoreBoat(b) ? (flagById.get(b.id) ?? null) : null;
   const planKey = planKeyOf(boats);
   return {
     builtAtMs: nowMs,
@@ -162,29 +327,36 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
     readings: {
       psi: psiReading(payloads.stability?.data ?? null, truth.stability),
       tide: tideFactsReading(chainsPayload, truth.chains),
-      seaState: seaStateReading(live, peg != null, truth.pegSummary),
-      weather: weatherReading(live, stress != null, truth.stress),
+      seaState: seaStateReading(liveCore, peg != null, truth.pegSummary),
+      weather: weatherReading(liveCore, stress != null, truth.stress),
       flows: flowsReading(payloads.mintBurn?.data ?? null, truth.mintBurn),
-      stormCones: stormCones(live, stress != null),
+      stormCones: stormCones(liveCore, stress != null),
       stormFlags: flags,
-      shoals: live.filter((b) => b.activeDepeg).map((b) => ({ id: b.id, bps: b.pegDeviationBps, supply: b.supply })),
+      shoals: liveCore.filter((b) => b.activeDepeg).map((b) => ({ id: b.id, bps: b.pegDeviationBps, supply: b.supply })),
       wrecks: wrecks(dead),
     },
     truth,
-    payloadCount: coins.length,
-    supplyTotal: boats.reduce((s, b) => s + b.supply, 0),
+    payloadCount: boats.length,
+    supplyTotal: coreBoats.reduce((s, b) => s + b.supply, 0),
+    coreCount: coreBoats.length,
+    reserveCount: reserveBoats.length,
+    reserveSupplyTotal: reserveBoats.reduce((s, b) => s + b.supply, 0),
+    variantsByParent,
+    reviewHold,
+    excludedCount,
     hasFleet: payloads.stablecoins?.data != null,
   };
 }
 
 /**
  * Everything that shapes the sailing plan: ids, hull classes, rig families, quantized circuits and whether a
- * hull is wrecked. Peg state is deliberately absent: a boat on the Shoals keeps its reservations.
+ * hull is wrecked or in Reserve Anchorage. Peg state is deliberately absent: a boat on the Shoals keeps its reservations.
  */
 function planKeyOf(boats: Boat[]): string {
   const parts: string[] = [];
   for (const b of boats) {
-    parts.push(`${b.id}:${b.hullClass}:${b.rig}:${b.state === "wrecked" ? "w" : ""}:${b.circuit.map((s) => `${s.where}=${Math.round(s.share * 100)}`).join(",")}`);
+    const flag = b.state === "wrecked" ? "w" : b.state === "reserve" || isTokenizedFund(b) ? "r" : "";
+    parts.push(`${b.id}:${b.hullClass}:${b.rig}:${flag}:${b.circuit.map((s) => `${s.where}=${Math.round(s.share * 100)}`).join(",")}`);
   }
   const s = parts.join("|");
   return `${boats.length}-${fnv1a(s).toString(16)}-${fnv1a("#" + s).toString(16)}`;

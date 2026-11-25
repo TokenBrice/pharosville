@@ -11,7 +11,7 @@
  * gone from the yard (the sim's Slipway voyage sails the new boat out). No renderer: civic.test.ts.
  */
 
-export type LaunchPhase = "announced" | "testnet" | "auditing" | "beta" | "launching-soon";
+export type LaunchPhase = "announced" | "testnet" | "auditing" | "beta" | "launching-soon" | "launched";
 export type HullStage = "keel" | "ribs" | "planked" | "painted" | "rigged";
 
 export interface PrelaunchMilestone { date: string; type: string; title: string }
@@ -43,7 +43,8 @@ export function stageFor(phase: LaunchPhase | null | undefined): HullStage {
     case "testnet": return "ribs";
     case "auditing": return "planked";
     case "beta": return "painted";
-    case "launching-soon": return "rigged";
+    case "launching-soon":
+    case "launched": return "rigged";
     default: return "keel";
   }
 }
@@ -97,11 +98,11 @@ export function launchedIds(coins: readonly Pick<PrelaunchCoin, "id" | "name" | 
   return out;
 }
 
-/** The Registry's grade board: live (not wrecked) boats by grade letter, "—" for unrated (as the Registry panel counts). */
+/** The Registry's grade board: live core (not wrecked or reserve) boats by grade letter, "—" for unrated (as the Registry panel counts). */
 export function gradeTally(boats: ReadonlyArray<{ grade: string | null; state: string }>): Map<string, number> {
   const t = new Map<string, number>();
   for (const b of boats) {
-    if (b.state === "wrecked") continue;
+    if (b.state === "wrecked" || b.state === "reserve") continue;
     const g = b.grade && /^[A-F]/i.test(b.grade) ? b.grade.charAt(0).toUpperCase() : "—";
     t.set(g, (t.get(g) ?? 0) + 1);
   }

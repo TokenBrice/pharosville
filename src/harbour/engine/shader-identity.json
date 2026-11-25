@@ -1303,7 +1303,7 @@
   },
   "fleet/flags": {
     "vertex": "729281bbd6ee6bdf9bf9ce4a3bf0fc0809c4ace1b15800a3680a3dd881b45ec4",
-    "fragment": "074a9dbe10915563688a8cf79c4cec2ad93b05a90846105c7608f22350f428ff",
+    "fragment": "9e60981f40245240501fbce9692057fa63cec7fbfa35c6b1e4cfab89b6b75099",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },

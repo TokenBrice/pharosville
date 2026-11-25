@@ -3,9 +3,24 @@ import { hourlyObservations, validObservationDate } from "@shared/lib/dated-obse
 import type { DeadStablecoin } from "@shared/types/market";
 import type { CemeteryScenery } from "../ui/static-data";
 import { causeFamily } from "./obituary";
-import type {
-  Boat, ChainsPayload, ConditionBand, DewsBand, EndpointTruth, FlowsReading, HarbourReadings, MintBurnPayload,
-  CoinRow, PsiReading, SeaStateReading, StabilityPayload, StormFlag, StormSignalShape, TideFactsReading, WeatherReading,
+import {
+  isTokenizedFund,
+  type Boat,
+  type ChainsPayload,
+  type ConditionBand,
+  type DewsBand,
+  type EndpointTruth,
+  type FlowsReading,
+  type HarbourReadings,
+  type MintBurnPayload,
+  type CoinRow,
+  type PsiReading,
+  type SeaStateReading,
+  type StabilityPayload,
+  type StormFlag,
+  type StormSignalShape,
+  type TideFactsReading,
+  type WeatherReading,
 } from "./types";
 
 const PSI_BANDS = new Set<string>(Object.keys(PSI_SWEEP_DURATION));
@@ -49,7 +64,7 @@ export function seaStateReading(boats: Boat[], pegAvailable: boolean, truth: End
   if (!pegAvailable || boats.length === 0) return { offPegShare: null, step: null, stale: truth.state === "stale" };
   let tot = 0, off = 0;
   for (const b of boats) {
-    if (b.state === "wrecked") continue;
+    if (b.state === "wrecked" || isTokenizedFund(b)) continue;
     tot += b.supply;
     if (b.activeDepeg) off += b.supply;
   }
@@ -64,7 +79,7 @@ export function weatherReading(boats: Boat[], stressAvailable: boolean, truth: E
   if (!stressAvailable) return { level: null, band: null, cloudCover: null, wind: null, coverage: null, stale };
   let tot = 0, seen = 0, acc = 0;
   for (const b of boats) {
-    if (b.state === "wrecked") continue;
+    if (b.state === "wrecked" || isTokenizedFund(b)) continue;
     tot += b.supply;
     if (b.dews == null) continue;
     seen += b.supply;
@@ -115,7 +130,7 @@ export function flowsReading(mint: MintBurnPayload | null, truth: EndpointTruth)
 export function stormCones(boats: Boat[], stressAvailable: boolean): HarbourReadings["stormCones"] {
   if (!stressAvailable) return null;
   let n = 0;
-  for (const b of boats) if (b.state !== "wrecked" && b.dews != null && DEWS_LEVEL[b.dews] >= DEWS_LEVEL.ALERT) n++;
+  for (const b of boats) if (b.state !== "wrecked" && !isTokenizedFund(b) && b.dews != null && DEWS_LEVEL[b.dews] >= DEWS_LEVEL.ALERT) n++;
   return { count: n, shown: Math.min(5, n), extra: Math.max(0, n - 5) };
 }
 
@@ -140,7 +155,7 @@ export function stormFlags(boats: readonly Boat[], stress: EndpointTruth): Storm
   if (stress.state !== "current") return [];
   const out: StormFlag[] = [];
   for (const b of boats) {
-    if (b.state === "wrecked" || b.dews == null) continue;
+    if (b.state === "wrecked" || isTokenizedFund(b) || b.dews == null) continue;
     const shape = STORM_SIGNAL_SHAPE[b.dews];
     if (shape) out.push({ id: b.id, symbol: b.symbol, band: b.dews, score: b.dewsScore, shape });
   }

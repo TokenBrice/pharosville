@@ -1,5 +1,5 @@
 /** P6 layout additions read by the identity layer (the shared contract; layout/types.ts is owned by the island). */
-export type SeaZoneKind = "harbour" | "shoals" | "farPorts" | "wreckCove" | "roads" | "open";
+export type SeaZoneKind = "harbour" | "shoals" | "farPorts" | "wreckCove" | "roads" | "reserveAnchorage" | "open";
 
 export interface SeaZone {
   id: string;

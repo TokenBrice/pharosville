@@ -170,7 +170,7 @@ export interface YieldConfig {
   yieldType: YieldType;
 }
 
-export const LAUNCH_PHASE_VALUES = ["announced", "testnet", "auditing", "beta", "launching-soon"] as const;
+export const LAUNCH_PHASE_VALUES = ["announced", "testnet", "auditing", "beta", "launching-soon", "launched"] as const;
 export type LaunchPhase = (typeof LAUNCH_PHASE_VALUES)[number];
 
 export const LAUNCH_MILESTONE_TYPE_VALUES = [

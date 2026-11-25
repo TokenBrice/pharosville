@@ -198,6 +198,14 @@ describe("PharosVille social card route", () => {
       }
     });
 
+    it("describes tokenized funds in Reserve Anchorage rather than core peg risk", () => {
+      const card = socialCardForSelection("ship.buidl-blackrock");
+      expect(card).not.toBeNull();
+      expect(card!.description).toContain("Reserve Anchorage");
+      expect(card!.description).toContain("tokenized fund");
+      expect(card!.description).not.toContain("peg risk");
+    });
+
     it("keeps wrecks and live-only yards generic without losing their client URL contract", () => {
       for (const kind of ["wreck", "yard"] as const) {
         const url = canonicalSubjectUrl({ kind, id: "live-only" });

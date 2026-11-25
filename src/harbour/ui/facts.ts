@@ -2,15 +2,15 @@
  * The one-fact lines and the "why it is here" sentences. Pure functions of (model, whereabouts),
  * so the hover tag, the panel and the tests all read the same words.
  */
-import type { Boat, DewsBand, HarbourModel, StormSignalShape } from "../model/types";
+import { isCoreBoat, isTokenizedFund, type Boat, type DewsBand, type HarbourModel, type StormSignalShape } from "../model/types";
 import { mastForBand, type OfficeState } from "../readings/bind";
 import { deadSummaries, FAMILIES } from "../model/obituary";
 import { bps, money, monthYear, pctChange, share, titleCase } from "./format";
 import { flowValued, flowWindow, grossFlow, NET_UNAVAILABLE, VALUATION_UNKNOWN } from "./flow-copy";
 import { observedEmpty, readingCoverage, readingSentence, sourceTruth } from "./source-state";
 
-export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "route-unavailable" | "unknown";
-export interface Whereabouts { kind: WhereKind; /** Chain name, "the Far Ports", or null. */ place: string | null }
+export type WhereKind = "alongside" | "moored" | "casting-off" | "sailing" | "outing" | "shoals" | "wreck" | "far" | "reserve" | "route-unavailable" | "unknown";
+export interface Whereabouts { kind: WhereKind; /** Chain name, "the Far Ports", "Reserve Anchorage", or null. */ place: string | null }
 
 export const epitaphOf = (id: string): string | null => deadSummaries().get(id)?.epitaph ?? null;
 /** “Epitaph.” with exactly one closing stop. */
@@ -57,6 +57,7 @@ export function whereabouts(phase: number, slotKind: string | null, slotPlace: s
   if (phase >= 1 && phase <= 3 && (slotKind === "wreck" || slotKind === "shoals")) return { kind: "sailing", place: slotKind === "wreck" ? "Wreck Cove" : "the Shoals" };
   if (slotKind === "wreck") return { kind: "wreck", place: null };
   if (slotKind === "shoals") return { kind: "shoals", place: null };
+  if (slotKind === "reserve") return { kind: "reserve", place: "Reserve Anchorage" };
   const place = slotKind === "far" ? FAR_PORTS : slotPlace;
   if (outing && phase >= 1 && phase <= 3) return { kind: "outing", place };
   switch (phase) {
@@ -74,6 +75,7 @@ export function whereLine(b: Boat, w: Whereabouts): string {
     case "alongside": return w.place ? `alongside ${w.place}` : "alongside";
     case "moored": return w.place ? `moored off ${w.place}` : "at her mooring";
     case "far": return `in ${FAR_PORTS}`;
+    case "reserve": return "in Reserve Anchorage";
     case "casting-off": return w.place ? `casting off for ${w.place}` : "casting off";
     case "sailing": return w.place === "Wreck Cove" ? "under tow to Wreck Cove" : w.place === "the Shoals" ? "drifting to the Shoals" : w.place ? `sailing to ${w.place}` : "under sail";
     case "outing": return "out for a sail";
@@ -103,6 +105,7 @@ export const LAUNCH_HOVER = "Dressed overall: joined the tracked register this v
 
 /** "USDT · $184.0B · alongside Tron" (+ " · signal hoisted: early warning, not a depeg" under a DA-04 signal). */
 export function boatFact(b: Boat, w: Whereabouts): string {
+  if (isTokenizedFund(b)) return [b.symbol, "tokenized fund", money(b.supply), "in Reserve Anchorage"].filter(Boolean).join(" · ");
   return [b.symbol, money(b.supply), whereLine(b, w), b.stormSignal ? signalWords(b) : "", b.maiden ? MAIDEN_HOVER : ""].filter(Boolean).join(" · ");
 }
 
@@ -123,6 +126,9 @@ export function officeLine(state: OfficeState | undefined, change30d: number | n
 
 /** The single sentence that explains the boat's position from the data. */
 export function whyHere(b: Boat, w: Whereabouts): string {
+  if (isTokenizedFund(b) || w.kind === "reserve") {
+    return "Anchored in Reserve Anchorage off the Bonded Warehouse. Retained as a tokenized fund because active stablecoins hold it as reserve backing; excluded from core stablecoin totals and Safety Scores.";
+  }
   if (w.kind === "route-unavailable") return ROUTE_UNAVAILABLE;
   if (w.kind === "sailing" && w.place === "Wreck Cove") return "Under tow to Wreck Cove: this coin has died.";
   if (b.state === "wrecked" || w.kind === "wreck") {
@@ -225,13 +231,21 @@ export function landmarkFact(id: string, m: HarbourModel | null, underWay: numbe
       const far = m?.harbours.filter((h) => !h.piered) ?? [];
       return { fact: `${far.length} chains without a pier · ${money(far.reduce((s, h) => s + h.supplyUsd, 0))}. ${FAR_PORTS_LINE}` };
     }
-    case "registry": return { fact: `${m?.payloadCount ?? 0} coins on the register` };
+    case "registry": {
+      const core = m?.coreCount ?? m?.boats.filter(isCoreBoat).length ?? m?.payloadCount ?? 0;
+      const reserve = m?.reserveCount ?? m?.boats.filter(isTokenizedFund).length ?? 0;
+      return { fact: reserve > 0 ? `${core} stablecoins · ${reserve} tokenized ${reserve === 1 ? "fund" : "funds"} ungraded` : `${core} stablecoins on the register` };
+    }
     case "harbourmaster": return { fact: underWay == null ? "keeps the harbour" : `${underWay} boats under way` };
     case "slipway": return { fact: counts.yard != null ? `${counts.yard} records · Awaiting admission to the tracked fleet.` : "Awaiting admission to the tracked fleet." };
     case "keepers-cottage": return { fact: "the keeper’s home", decorative: true };
     case "oil-store": return { fact: "lamp oil for the Pharos", decorative: true };
     case "church": return { fact: "the town on the hill", decorative: true };
-    case "warehouse": return { fact: "bonded goods", decorative: true };
+    case "warehouse": case "reserve-anchorage": {
+      const n = m?.reserveCount ?? m?.boats.filter(isTokenizedFund).length ?? 0;
+      const aum = m?.reserveSupplyTotal ?? m?.boats.filter(isTokenizedFund).reduce((s, b) => s + b.supply, 0) ?? 0;
+      return { fact: n > 0 ? `${n} tokenized ${n === 1 ? "fund" : "funds"} · ${money(aum)} reserve AUM · outside core totals` : "no reserve fund readings" };
+    }
     default: return { fact: "", decorative: true };
   }
 }
@@ -253,7 +267,7 @@ export function harbourFact(chain: string, m: HarbourModel | null, office?: Offi
 
 /** Landmarks that open a panel on click (the rest are hover-only). */
 export const PANEL_LANDMARKS = new Set(["pharos", "shoals", "customs-house", "tide-board", "storm-mast", "wreck-cove", "far-ports", "registry", "harbourmaster", "slipway",
-  "tide-gauge", "mint", "burn", "chartroom", "keeperslog", "the-roads"]);
+  "tide-gauge", "mint", "burn", "chartroom", "keeperslog", "the-roads", "warehouse", "reserve-anchorage"]);
 
 export const wreckDate = (d: string) => monthYear(d);
 
@@ -280,6 +294,7 @@ export const WRECK_RULE = "Wreck form follows the recorded cause family; size fo
 export const WREATH_RULE = "A fresh wreath marks the newest recorded death within 90 days; month-only dates count from month end.";
 export const ANNIVERSARY_RULE = "An anniversary requires a recorded full date from an earlier year; month-only dates have no anniversary day.";
 export const CEREMONY_RULE = "Confirmed visit events may stage brief ceremonies; the Day book also records events that receive no ceremony. Night and seasons follow the calendar and carry no market reading.";
+export const RESERVE_RULE = "Reserve Anchorage holds tokenized funds off the Bonded Warehouse: furled under raw-linen covers with a rectangular reserve ensign and unlit stern lantern. Excluded from core stablecoin totals and Safety Scores; select a fund to trace the stablecoins it backs.";
 
 /** Shared guide/legend wording: teaching stays on demand and adds no analytical mapping. */
 export const PHAROS_GUIDE = "A fire in the lantern, thrown out to sea by a bronze mirror. A slow, wide sweep is a calm market; a faster, shorter beam is stress. A dark lantern means no reading. Its light passes over the ships and walls it reaches; a horn shutter narrows it when the index was computed without stress signals or depeg events.";

@@ -1,0 +1,1042 @@
+{
+  "policyVersion": "2.0",
+  "fundIds": [
+    "buidl-blackrock",
+    "eutbl-spiko",
+    "jaaa-janus-henderson-anemoy",
+    "jtrsy-anemoy",
+    "mf-one-midas",
+    "mglobal-midas-fasanara",
+    "onyc-onre",
+    "reusd-re-protocol",
+    "thbill-theo",
+    "ustb-superstate",
+    "ustbl-spiko",
+    "usyc-hashnote",
+    "vbill-vaneck"
+  ],
+  "reviewHoldIds": [
+    "rcusd-r25"
+  ],
+  "variantIds": [
+    "aa-falconx-mev-capital",
+    "apyusd-apyx",
+    "arcusdc-galaxy",
+    "armusdcs-wintermute",
+    "asusdf-astherus",
+    "autousd-auto-finance",
+    "bbqusdc-steakhouse",
+    "bbqusdc-steakhouse-v2",
+    "busd0-usual",
+    "cscbusdc-clearstar",
+    "ctusd-citrea",
+    "cusdo-openeden",
+    "dusd-dialectic",
+    "earnusd-lido",
+    "eearn-ember",
+    "ethenausdc-steakhouse",
+    "fxsave-f-x-protocol",
+    "gtusdc-gauntlet",
+    "gtusdcp-gauntlet",
+    "gtusdtp-gauntlet",
+    "gusdcq-galaxy",
+    "gusdtq-galaxy",
+    "hbusdt-hyperbeat",
+    "hyperusdca-hyperithm",
+    "iusd-initia",
+    "kpkusdcprime-kpk",
+    "kpkusdcyield-kpk",
+    "krusdc-keyrock",
+    "mantrausd-mantra",
+    "musd-metamask",
+    "pendleusdc-pendle",
+    "pusd-plume",
+    "said-gaib",
+    "savusd-avant",
+    "sbold-k3-capital",
+    "scrvusd-curve",
+    "sdai-gnosis",
+    "sdai-sky",
+    "sdola-inverse-finance",
+    "senpathusd-sentora",
+    "senpyusdmain-sentora",
+    "senpyusdmwin-sentora",
+    "senpyusdprimev2-sentora",
+    "senpyusdpst-sentora",
+    "senrlusdv2-sentora",
+    "sfrax-frax",
+    "sfrxusd-frax",
+    "sgho-aave",
+    "sirloinusdc-steakhouse",
+    "skymoneyusdsflagship-sky",
+    "skymoneyusdtsavings-sky",
+    "sparkusdc-spark",
+    "sparkusdtbc-spark",
+    "sreusd-resupply",
+    "srusd-reservoir",
+    "srusde-strata",
+    "stcusd-cap",
+    "steakcusdc-steakhouse",
+    "steakeurcv-steakhouse",
+    "steakusdc-steakhouse",
+    "steakusdg-steakhouse",
+    "steakusdt-steakhouse",
+    "stkgho-umbrella-aave",
+    "strusd-tori",
+    "stusd-stoneyield",
+    "stusds-sky",
+    "susd1plus-lorenzo",
+    "susdai-usd-ai",
+    "susdat-saturn",
+    "susdc-spark",
+    "susdc-spark-v1",
+    "susdd-tron-dao-reserve",
+    "susde-ethena",
+    "susdf-falcon",
+    "susds-sky",
+    "susdt-spark",
+    "susdx-axis",
+    "susn-noon",
+    "sxsrlusd-sentora",
+    "syrupusdc-maple",
+    "syrupusdg-maple",
+    "syrupusdt-maple",
+    "syusd-aegis",
+    "syzusd-yuzu",
+    "usd3-3jane",
+    "usdk-kast",
+    "usdnr-nerona",
+    "usdplus-streamflow",
+    "usdr-rise",
+    "usdsc-startale",
+    "usdso-somnia",
+    "ussd-sonic-labs",
+    "witry-brix",
+    "wm-m0",
+    "wsrusd-reservoir",
+    "xgld-unitas",
+    "ybold-yearn",
+    "yousd-yield-optimizer",
+    "yusd-yieldfi",
+    "yvusdc-yearn",
+    "zys-zephyr-protocol"
+  ],
+  "excludedIds": [
+    "acrdx-anemoy-apollo",
+    "acred-apollo-securitize",
+    "bc3m-backed",
+    "bd-basedollar",
+    "bfusd-binance",
+    "brsrv-blackrock",
+    "chfsafo-spiko",
+    "cumiu-chinaamc",
+    "eursafo-spiko",
+    "eurspkcc-spiko",
+    "filqa-fidelity-international",
+    "fiusd-sygnum",
+    "gbpsafo-spiko",
+    "gldon-ondo",
+    "gusd-gate",
+    "hlscope-hamilton-lane",
+    "iauon-ondo",
+    "inalpha-nest",
+    "isc-international-stable-currency",
+    "jpysc-sbi-startale",
+    "jusd-juicedollar",
+    "mapollo-midas",
+    "mhyper-midas",
+    "mmev-midas",
+    "mre7yield-midas",
+    "mtbill-midas",
+    "nbasis-nest",
+    "nopal-nest",
+    "ntbill-nest",
+    "nwisdom-nest",
+    "ousg-ondo-finance",
+    "pc0000031-tradable",
+    "pc0000033-tradable",
+    "pc0000089-tradable",
+    "pc0000101-tradable",
+    "pht-pht",
+    "reur-royal-euro",
+    "roughrider-bnd",
+    "rusd-royal-dollar",
+    "rwausdi-multipli",
+    "safo-spiko-usd",
+    "slvon-ondo",
+    "spkcc-spiko",
+    "spusd-soulpeg",
+    "stac-securitize",
+    "susd-hedgecore",
+    "uktbl-spiko",
+    "umint-ubs",
+    "uscc-superstate",
+    "usd3-reserve-protocol",
+    "usdb-bridge",
+    "usdr-ring",
+    "usdy-ondo-finance",
+    "usp-pikudao",
+    "vcred-vcred",
+    "wusd-worldwide",
+    "xai-silo-finance"
+  ],
+  "frozenIds": [
+    "aeur-anchored-coins",
+    "ausdt-tether-alloy",
+    "aznd-mu-digital",
+    "bib01-backed",
+    "bnusd-balanced",
+    "buck-buck-assets",
+    "cdxusd-cod3x",
+    "djed-coti",
+    "dusd-dtrinity",
+    "dusd-fluid",
+    "ebusd-ebisu",
+    "euro3-3a-dao",
+    "euroe-membrane",
+    "eurr-stablr",
+    "fpi-frax",
+    "fxd-fathom",
+    "gyen-gyen",
+    "home-homecoin",
+    "ist-agoric",
+    "jpyc-jpyc-v1",
+    "mim-abracadabra",
+    "msusd-main-street",
+    "msy-main-street",
+    "sdusd-dtrinity",
+    "silk-shade-protocol",
+    "susd-synthetix",
+    "usda-avalon",
+    "usdb-blast",
+    "usdh-native-markets",
+    "usdk-orki",
+    "usdkg-gold-dollar",
+    "usdn-noble",
+    "usdr-stablr",
+    "usdv-solomon",
+    "usnd-nerite",
+    "usr-resolv",
+    "usx-dforce",
+    "vndc-jade-labs",
+    "wemix-dollar-wemix",
+    "xnk-kinka",
+    "xtusd-xt",
+    "zeusd-zoth",
+    "zkusd-goal3"
+  ],
+  "funds": {
+    "buidl-blackrock": {
+      "navToken": false,
+      "pegCurrency": "USD",
+      "archetype": "tbill",
+      "backedIds": [
+        "frax-frax",
+        "frxusd-frax",
+        "stbt-matrixdock",
+        "usdgo-osl",
+        "usdtb-ethena"
+      ]
+    },
+    "eutbl-spiko": {
+      "navToken": true,
+      "pegCurrency": "EUR",
+      "archetype": "tbill",
+      "backedIds": [
+        "eur0-usual"
+      ]
+    },
+    "jaaa-janus-henderson-anemoy": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "rwa-credit-fund",
+      "backedIds": [
+        "usdf-falcon"
+      ],
+      "liveAdapterBackedIds": [
+        "usdf-falcon"
+      ]
+    },
+    "jtrsy-anemoy": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "tbill",
+      "backedIds": [
+        "usdf-falcon"
+      ],
+      "liveAdapterBackedIds": [
+        "usdf-falcon"
+      ]
+    },
+    "mf-one-midas": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "rwa-credit-fund",
+      "backedIds": [
+        "iusd-infinifi"
+      ]
+    },
+    "mglobal-midas-fasanara": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "rwa-credit-fund",
+      "backedIds": [
+        "iusd-infinifi",
+        "yzusd-yuzu"
+      ]
+    },
+    "onyc-onre": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "rwa-credit-fund",
+      "backedIds": [
+        "hyusd-hylo"
+      ]
+    },
+    "reusd-re-protocol": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "rwa-credit-fund",
+      "backedIds": [
+        "iusd-infinifi",
+        "yzusd-yuzu"
+      ]
+    },
+    "thbill-theo": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "tbill",
+      "backedIds": [
+        "thusd-theo"
+      ]
+    },
+    "ustb-superstate": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "tbill",
+      "backedIds": [
+        "frax-frax",
+        "frxusd-frax",
+        "stbt-matrixdock",
+        "usda-anzens",
+        "yzusd-yuzu"
+      ]
+    },
+    "ustbl-spiko": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "tbill",
+      "backedIds": [
+        "usd0-usual"
+      ]
+    },
+    "usyc-hashnote": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "tbill",
+      "backedIds": [
+        "usd0-usual"
+      ]
+    },
+    "vbill-vaneck": {
+      "navToken": true,
+      "pegCurrency": "USD",
+      "archetype": "tbill",
+      "backedIds": [
+        "yzusd-yuzu"
+      ]
+    }
+  },
+  "variantsByParent": {
+    "aid-gaib": [
+      {
+        "id": "said-gaib",
+        "symbol": "sAID",
+        "name": "GAIB sAID",
+        "kind": "strategy-vault"
+      }
+    ],
+    "apxusd-apyx": [
+      {
+        "id": "apyusd-apyx",
+        "symbol": "apyUSD",
+        "name": "apyUSD",
+        "kind": "strategy-vault"
+      }
+    ],
+    "ausd-agora": [
+      {
+        "id": "iusd-initia",
+        "symbol": "iUSD",
+        "name": "Initia iUSD",
+        "kind": "pure-wrapper"
+      }
+    ],
+    "avusd-avant": [
+      {
+        "id": "savusd-avant",
+        "symbol": "savUSD",
+        "name": "Avant Staked USD",
+        "kind": "strategy-vault"
+      }
+    ],
+    "bold-liquity": [
+      {
+        "id": "sbold-k3-capital",
+        "symbol": "sBOLD",
+        "name": "sBOLD by K3 Capital",
+        "kind": "risk-absorption"
+      },
+      {
+        "id": "ybold-yearn",
+        "symbol": "yBOLD",
+        "name": "Yearn BOLD",
+        "kind": "strategy-vault"
+      }
+    ],
+    "crvusd-curve": [
+      {
+        "id": "scrvusd-curve",
+        "symbol": "scrvUSD",
+        "name": "Savings crvUSD",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "cusd-cap": [
+      {
+        "id": "stcusd-cap",
+        "symbol": "stcUSD",
+        "name": "Staked Cap USD",
+        "kind": "strategy-vault"
+      }
+    ],
+    "dai-makerdao": [
+      {
+        "id": "sdai-sky",
+        "symbol": "sDAI",
+        "name": "Savings Dai",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "dola-inverse-finance": [
+      {
+        "id": "sdola-inverse-finance",
+        "symbol": "sDOLA",
+        "name": "Inverse Staked DOLA",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "eurcv-societe-generale-forge": [
+      {
+        "id": "steakeurcv-steakhouse",
+        "symbol": "steakEURCV",
+        "name": "Steakhouse Prime EURCV",
+        "kind": "strategy-vault"
+      }
+    ],
+    "frax-frax": [
+      {
+        "id": "sfrax-frax",
+        "symbol": "sFRAX",
+        "name": "Staked FRAX",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "frxusd-frax": [
+      {
+        "id": "sfrxusd-frax",
+        "symbol": "sfrxUSD",
+        "name": "Staked Frax USD",
+        "kind": "savings-passthrough"
+      },
+      {
+        "id": "usdso-somnia",
+        "symbol": "USDso",
+        "name": "USD Somnia",
+        "kind": "pure-wrapper"
+      },
+      {
+        "id": "ussd-sonic-labs",
+        "symbol": "USSD",
+        "name": "US Sonic Dollar",
+        "kind": "pure-wrapper"
+      }
+    ],
+    "fxusd-f-x-protocol": [
+      {
+        "id": "fxsave-f-x-protocol",
+        "symbol": "fxSAVE",
+        "name": "f(x) USD Saving",
+        "kind": "strategy-vault"
+      }
+    ],
+    "gho-aave": [
+      {
+        "id": "sgho-aave",
+        "symbol": "sGHO",
+        "name": "Aave Savings GHO",
+        "kind": "savings-passthrough"
+      },
+      {
+        "id": "stkgho-umbrella-aave",
+        "symbol": "stkGHO.v1",
+        "name": "Aave Umbrella stkGHO",
+        "kind": "risk-absorption"
+      }
+    ],
+    "itry-brix": [
+      {
+        "id": "witry-brix",
+        "symbol": "wiTRY",
+        "name": "Wrapped iTRY",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "m-m0": [
+      {
+        "id": "ctusd-citrea",
+        "symbol": "ctUSD",
+        "name": "Citrea USD",
+        "kind": "pure-wrapper"
+      },
+      {
+        "id": "mantrausd-mantra",
+        "symbol": "mantraUSD",
+        "name": "Mantra USD",
+        "kind": "pure-wrapper"
+      },
+      {
+        "id": "musd-metamask",
+        "symbol": "MUSD",
+        "name": "MetaMask USD",
+        "kind": "pure-wrapper"
+      },
+      {
+        "id": "usdk-kast",
+        "symbol": "USDK",
+        "name": "KAST Dollar",
+        "kind": "pure-wrapper"
+      },
+      {
+        "id": "usdnr-nerona",
+        "symbol": "USDnr",
+        "name": "Nerona USD",
+        "kind": "pure-wrapper"
+      },
+      {
+        "id": "usdplus-streamflow",
+        "symbol": "USD+",
+        "name": "Streamflow USD+",
+        "kind": "pure-wrapper"
+      },
+      {
+        "id": "usdr-rise",
+        "symbol": "USDR",
+        "name": "RISE Dollar",
+        "kind": "pure-wrapper"
+      },
+      {
+        "id": "usdsc-startale",
+        "symbol": "USDSC",
+        "name": "Startale USD",
+        "kind": "pure-wrapper"
+      },
+      {
+        "id": "wm-m0",
+        "symbol": "wM",
+        "name": "Wrapped M",
+        "kind": "pure-wrapper"
+      }
+    ],
+    "pathusd-bridge": [
+      {
+        "id": "senpathusd-sentora",
+        "symbol": "senpathUSD",
+        "name": "Sentora pathUSD",
+        "kind": "strategy-vault"
+      }
+    ],
+    "pyusd-paypal": [
+      {
+        "id": "senpyusdmain-sentora",
+        "symbol": "senPYUSDmain",
+        "name": "PayPal USD Main",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "senpyusdmwin-sentora",
+        "symbol": "senPYUSDmWIN",
+        "name": "Sentora mWIN Main",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "senpyusdprimev2-sentora",
+        "symbol": "senPYUSDPRIMEv2",
+        "name": "Sentora PRIME Main",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "senpyusdpst-sentora",
+        "symbol": "senPYUSDPST",
+        "name": "Sentora Huma PST Main",
+        "kind": "strategy-vault"
+      }
+    ],
+    "reusd-resupply": [
+      {
+        "id": "sreusd-resupply",
+        "symbol": "sreUSD",
+        "name": "Resupply Savings reUSD",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "rlusd-ripple": [
+      {
+        "id": "senrlusdv2-sentora",
+        "symbol": "senRLUSDv2",
+        "name": "Sentora RLUSD Main",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "sxsrlusd-sentora",
+        "symbol": "sxsRLUSD",
+        "name": "Sentora x Spark RLUSD",
+        "kind": "strategy-vault"
+      }
+    ],
+    "rusd-reservoir": [
+      {
+        "id": "srusd-reservoir",
+        "symbol": "srUSD",
+        "name": "Savings rUSD",
+        "kind": "savings-passthrough"
+      },
+      {
+        "id": "wsrusd-reservoir",
+        "symbol": "wsrUSD",
+        "name": "Wrapped Savings rUSD",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "trusd-tori": [
+      {
+        "id": "strusd-tori",
+        "symbol": "strUSD",
+        "name": "Tori Staked trUSD",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "usd0-usual": [
+      {
+        "id": "busd0-usual",
+        "symbol": "bUSD0",
+        "name": "Bond USD0",
+        "kind": "bond-maturity"
+      }
+    ],
+    "usd1-world-liberty-financial": [
+      {
+        "id": "susd1plus-lorenzo",
+        "symbol": "sUSD1+",
+        "name": "staked USD1+",
+        "kind": "strategy-vault"
+      }
+    ],
+    "usdai-usd-ai": [
+      {
+        "id": "susdai-usd-ai",
+        "symbol": "sUSDai",
+        "name": "Staked USDai",
+        "kind": "strategy-vault"
+      }
+    ],
+    "usdat-saturn": [
+      {
+        "id": "susdat-saturn",
+        "symbol": "sUSDat",
+        "name": "Saturn sUSDat",
+        "kind": "strategy-vault"
+      }
+    ],
+    "usdc-circle": [
+      {
+        "id": "aa-falconx-mev-capital",
+        "symbol": "AA_FalconXUSDC",
+        "name": "Pareto FalconX Credit Vault",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "arcusdc-galaxy",
+        "symbol": "arcUSDC",
+        "name": "Galaxy USDC",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "armusdcs-wintermute",
+        "symbol": "armUSDCs",
+        "name": "Wintermute USDC Select",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "autousd-auto-finance",
+        "symbol": "autoUSD",
+        "name": "Auto Finance autoUSD",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "bbqusdc-steakhouse",
+        "symbol": "bbqUSDC",
+        "name": "Smokehouse USDC",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "bbqusdc-steakhouse-v2",
+        "symbol": "bbqUSDC",
+        "name": "Steakhouse High Yield USDC",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "cscbusdc-clearstar",
+        "symbol": "CSCBUSDC",
+        "name": "Clearstar cbAssets Vault",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "dusd-dialectic",
+        "symbol": "DUSD",
+        "name": "Dialectic USD",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "earnusd-lido",
+        "symbol": "earnUSD",
+        "name": "Lido EarnUSD",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "eearn-ember",
+        "symbol": "eEARN",
+        "name": "Ember Earn",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "ethenausdc-steakhouse",
+        "symbol": "ethenaUSDC",
+        "name": "Ethena x Steakhouse USDC",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "gtusdc-gauntlet",
+        "symbol": "gtUSDC",
+        "name": "Gauntlet USDC Prime V1",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "gtusdcp-gauntlet",
+        "symbol": "gtUSDCp",
+        "name": "Gauntlet USDC Prime",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "gusdcq-galaxy",
+        "symbol": "gUSDCq",
+        "name": "Galaxy USDC Quality",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "hyperusdca-hyperithm",
+        "symbol": "hyperUSDCa",
+        "name": "Hyperithm USDC Apex",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "kpkusdcprime-kpk",
+        "symbol": "KPK_USDC_Prime",
+        "name": "KPK USDC Prime",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "kpkusdcyield-kpk",
+        "symbol": "KPK_USDC_Yield",
+        "name": "KPK USDC Yield",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "krusdc-keyrock",
+        "symbol": "krUSDC",
+        "name": "Keyrock Prime USDC",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "pendleusdc-pendle",
+        "symbol": "pendleUSDC",
+        "name": "Pendle Ecosystem USDC",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "pusd-plume",
+        "symbol": "pUSD",
+        "name": "Plume USD",
+        "kind": "pure-wrapper"
+      },
+      {
+        "id": "sirloinusdc-steakhouse",
+        "symbol": "sirloinUSDC",
+        "name": "Steakhouse High Yield USDC Edition",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "sparkusdc-spark",
+        "symbol": "sparkUSDC",
+        "name": "Spark USDC Vault",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "steakcusdc-steakhouse",
+        "symbol": "steakcUSDC",
+        "name": "Steakhouse Confidential Prime USDC",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "steakusdc-steakhouse",
+        "symbol": "steakUSDC",
+        "name": "Steakhouse Prime USDC",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "stusd-stoneyield",
+        "symbol": "stUSD",
+        "name": "StoneYield USD",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "susdc-spark",
+        "symbol": "spUSDC",
+        "name": "Spark Savings USDC",
+        "kind": "savings-passthrough"
+      },
+      {
+        "id": "susdc-spark-v1",
+        "symbol": "sUSDC",
+        "name": "Spark USDC V1 (Legacy)",
+        "kind": "savings-passthrough"
+      },
+      {
+        "id": "syrupusdc-maple",
+        "symbol": "syrupUSDC",
+        "name": "Maple syrupUSDC",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "usd3-3jane",
+        "symbol": "USD3",
+        "name": "3Jane USD3",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "yousd-yield-optimizer",
+        "symbol": "yoUSD",
+        "name": "Yield Optimizer USD",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "yusd-yieldfi",
+        "symbol": "YUSD",
+        "name": "YieldFi yUSD",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "yvusdc-yearn",
+        "symbol": "yvUSDC-1",
+        "name": "Yearn v3 USDC Vault",
+        "kind": "strategy-vault"
+      }
+    ],
+    "usdd-tron-dao-reserve": [
+      {
+        "id": "susdd-tron-dao-reserve",
+        "symbol": "sUSDD",
+        "name": "Savings USDD",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "usde-ethena": [
+      {
+        "id": "srusde-strata",
+        "symbol": "srUSDe",
+        "name": "Strata Senior USDe",
+        "kind": "risk-absorption"
+      },
+      {
+        "id": "susde-ethena",
+        "symbol": "sUSDe",
+        "name": "Ethena Staked USDe",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "usdf-astherus": [
+      {
+        "id": "asusdf-astherus",
+        "symbol": "asUSDF",
+        "name": "Aster Staked USDF",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "usdf-falcon": [
+      {
+        "id": "susdf-falcon",
+        "symbol": "sUSDf",
+        "name": "Falcon Staked USDf",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "usdg-paxos": [
+      {
+        "id": "steakusdg-steakhouse",
+        "symbol": "steakUSDG",
+        "name": "Steakhouse USDG",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "syrupusdg-maple",
+        "symbol": "syrupUSDG",
+        "name": "Maple syrupUSDG",
+        "kind": "strategy-vault"
+      }
+    ],
+    "usdo-openeden": [
+      {
+        "id": "cusdo-openeden",
+        "symbol": "cUSDO",
+        "name": "Compounding OpenDollar",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "usds-sky": [
+      {
+        "id": "skymoneyusdsflagship-sky",
+        "symbol": "skyMoneyUsdsFlagship",
+        "name": "sky.money USDS Flagship",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "stusds-sky",
+        "symbol": "stUSDS",
+        "name": "Staked USDS",
+        "kind": "risk-absorption"
+      },
+      {
+        "id": "susds-sky",
+        "symbol": "sUSDS",
+        "name": "Sky Savings USDS",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "usdt-tether": [
+      {
+        "id": "gtusdtp-gauntlet",
+        "symbol": "gtUSDTp",
+        "name": "Gauntlet USDT Prime V2",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "gusdtq-galaxy",
+        "symbol": "gUSDTq",
+        "name": "Galaxy USDT Quality",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "hbusdt-hyperbeat",
+        "symbol": "hbUSDT",
+        "name": "Hyperbeat USDT",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "skymoneyusdtsavings-sky",
+        "symbol": "skyMoneyUsdtSavings",
+        "name": "sky.money USDT Savings",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "sparkusdtbc-spark",
+        "symbol": "sparkUSDTbc",
+        "name": "Spark Blue Chip USDT Vault",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "steakusdt-steakhouse",
+        "symbol": "steakUSDT",
+        "name": "Steakhouse USDT V2",
+        "kind": "strategy-vault"
+      },
+      {
+        "id": "susdt-spark",
+        "symbol": "spUSDT",
+        "name": "Spark Savings USDT",
+        "kind": "savings-passthrough"
+      },
+      {
+        "id": "syrupusdt-maple",
+        "symbol": "syrupUSDT",
+        "name": "Maple syrupUSDT",
+        "kind": "strategy-vault"
+      }
+    ],
+    "usdx-axis": [
+      {
+        "id": "susdx-axis",
+        "symbol": "sUSDx",
+        "name": "Staked Axis USD",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "usn-noon": [
+      {
+        "id": "susn-noon",
+        "symbol": "sUSN",
+        "name": "Staked USN",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "xaut-tether": [
+      {
+        "id": "xgld-unitas",
+        "symbol": "xGLD",
+        "name": "Unitas Gold",
+        "kind": "strategy-vault"
+      }
+    ],
+    "xdai-gnosis": [
+      {
+        "id": "sdai-gnosis",
+        "symbol": "sDAI",
+        "name": "Savings xDAI",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "yusd-aegis": [
+      {
+        "id": "syusd-aegis",
+        "symbol": "sYUSD",
+        "name": "Aegis Staked YUSD",
+        "kind": "savings-passthrough"
+      }
+    ],
+    "yzusd-yuzu": [
+      {
+        "id": "syzusd-yuzu",
+        "symbol": "syzUSD",
+        "name": "Staked Yuzu USD",
+        "kind": "strategy-vault"
+      }
+    ],
+    "zsd-zephyr-protocol": [
+      {
+        "id": "zys-zephyr-protocol",
+        "symbol": "ZYS",
+        "name": "Zephyr Yield Share",
+        "kind": "savings-passthrough"
+      }
+    ]
+  }
+}

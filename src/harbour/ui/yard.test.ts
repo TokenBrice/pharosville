@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import runtimeSlim from "@shared/data/stablecoins/runtime-slim.json";
-import { RUNTIME_TRACKED_STABLECOINS } from "@shared/lib/stablecoins/runtime-registry";
 import layout from "../data/layout.json";
 import prelaunch from "../data/prelaunch.json";
 import scenery from "virtual:pharosville-prelaunch";
@@ -36,14 +35,16 @@ describe("the Shipyard's book", () => {
     for (const c of REGISTRY_YARD) expect(["keel", "ribs", "planked", "painted", "rigged"]).toContain(c.stage);
   });
 
-  it("reads the same pre-launch coins from the slim registry as from the full one", () => {
-    const full = RUNTIME_TRACKED_STABLECOINS.filter((c) => c.status === "pre-launch").map(toYardCoin);
-    expect(full.length).toBeGreaterThan(0);
-    expect(runtimeSlim.filter((c) => c.status === "pre-launch").map(toYardCoin)).toEqual(full);
+  it("aligns slim pre-launch records with prelaunch.json, including the launched phase", () => {
+    const slimPre = runtimeSlim.filter((c) => c.status === "pre-launch").map(toYardCoin);
+    expect(slimPre.length).toBeGreaterThan(0);
+    expect(new Set(slimPre.map((c) => c?.id))).toEqual(new Set(prelaunch.coins.map((c) => c.id)));
+    expect(slimPre.some((c) => c?.phase === "launched" && c.stage === "rigged")).toBe(true);
   });
 
   it("normalises phase labels and guards missing fields", () => {
     expect(toYardCoin({ id: "x", phase: "Launching Soon" })).toMatchObject({ id: "x", symbol: "x", phase: "launching-soon", stage: "rigged", expected: null, milestones: [] });
+    expect(toYardCoin({ id: "l", launchPhase: "launched" })).toMatchObject({ id: "l", symbol: "l", phase: "launched", stage: "rigged" });
     expect(toYardCoin({ id: "y", launchPhase: "nonsense", milestones: [{ date: 1 }, { date: "2026-01-02", title: "t", type: "audit" }] })).toMatchObject({ phase: null, stage: "keel" });
     expect(toYardCoin({ id: "y", milestones: [{ date: 1 }, { date: "2026-01-02", title: "t", type: "audit" }] })?.milestones).toHaveLength(1);
     expect(toYardCoin({})).toBeNull();
@@ -61,9 +62,9 @@ describe("the Shipyard's book", () => {
   });
 
   it("groups furthest along first, unphased last", () => {
-    const coins = ["announced", "beta", null, "launching-soon"].map((p, i) => toYardCoin({ id: `c${i}`, launchPhase: p })!);
-    expect(groupYard(coins).map((g) => g.label)).toEqual(["Launching soon", "Beta", "Announced", "Phase not stated"]);
-    expect(sortYard(coins)[0].phase).toBe("launching-soon");
+    const coins = ["announced", "beta", null, "launching-soon", "launched"].map((p, i) => toYardCoin({ id: `c${i}`, launchPhase: p })!);
+    expect(groupYard(coins).map((g) => g.label)).toEqual(["Launched", "Launching soon", "Beta", "Announced", "Phase not stated"]);
+    expect(sortYard(coins)[0].phase).toBe("launched");
   });
 
   it("keeps every scenery and hover field exact when the narrative book is deferred", () => {
@@ -96,7 +97,9 @@ describe("P6 places", () => {
     expect(officeChain(L, "harbour-office:hyperliquid-l1")).toBe("Hyperliquid L1");
     expect(officeChain(L, "mint")).toBeNull();
     expect(placeName(L, "the-roads")).toBe("The Roads");
-    for (const id of ["mint", "burn", "slipway", "chartroom", "keeperslog", "the-roads"]) expect(PANEL_LANDMARKS.has(id)).toBe(true);
+    expect(placeName(L, "warehouse")).toBe("Bonded Warehouse");
+    expect(placeName(L, "reserve-anchorage")).toBe("Reserve Anchorage");
+    for (const id of ["mint", "burn", "slipway", "chartroom", "keeperslog", "the-roads", "warehouse", "reserve-anchorage"]) expect(PANEL_LANDMARKS.has(id)).toBe(true);
   });
 
   it("tests a point against a rotated plot", () => {

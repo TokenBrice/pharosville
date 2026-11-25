@@ -7,8 +7,6 @@
  * registry snapshot (`status: "pre-launch"`). Rows are read structurally and every field is guarded.
  */
 import type { LaunchMilestone, LaunchPhase } from "@shared/types/core";
-// the slim cut of the registry (scripts/harbour/sync-check.mjs), not runtime-registry: the full registry stays server-side
-import runtimeSlim from "@shared/data/stablecoins/runtime-slim.json";
 import prelaunchBook from "virtual:pharosville-prelaunch";
 import { logosById, runtimeLogoPath } from "../../lib/logos";
 import { launchedIds } from "../civic/yard";
@@ -20,14 +18,14 @@ export const YARD_EXPLANATION = "A Shipyard record may already be in pilot or on
 export const UPCOMING_URL = "https://pharos.watch/upcoming/";
 
 /** Launch phases in the order a hull is built; `null` (unphased) sorts first, as a bare keel. */
-export const PHASES: readonly LaunchPhase[] = ["announced", "testnet", "auditing", "beta", "launching-soon"];
+export const PHASES: readonly LaunchPhase[] = ["announced", "testnet", "auditing", "beta", "launching-soon", "launched"];
 export const PHASE_NAME: Record<LaunchPhase, string> = {
-  announced: "Announced", testnet: "Testnet", auditing: "Auditing", beta: "Beta", "launching-soon": "Launching soon",
+  announced: "Announced", testnet: "Testnet", auditing: "Auditing", beta: "Beta", "launching-soon": "Launching soon", launched: "Launched",
 };
 /** Construction stage on the slip, by phase (D20: keel → ribs → planking → painted → rigged). */
 export type HullStage = "keel" | "ribs" | "planked" | "painted" | "rigged";
 export const STAGE_OF: Record<LaunchPhase, HullStage> = {
-  announced: "keel", testnet: "ribs", auditing: "planked", beta: "painted", "launching-soon": "rigged",
+  announced: "keel", testnet: "ribs", auditing: "planked", beta: "painted", "launching-soon": "rigged", launched: "rigged",
 };
 export const STAGE_NAME: Record<HullStage, string> = {
   keel: "keel laid", ribs: "in frame", planked: "planked", painted: "painted", rigged: "rigged, awaiting admission",
@@ -134,22 +132,15 @@ export function groupYard(coins: readonly YardCoin[]): Array<{ phase: LaunchPhas
 }
 
 const fromRows = (rows: readonly unknown[]) => rows.map(toYardCoin).filter((c): c is YardCoin => c != null);
-const SNAPSHOT = fromRows(runtimeSlim.filter((c) => c.status === "pre-launch"));
 const BOOK = fromRows(((prelaunchBook as { coins?: unknown[] }).coins) ?? []);
 
-/** The pre-launch book (the synced pharos-watch list); the repo's registry snapshot only when the book is empty. */
-export let REGISTRY_YARD: YardCoin[] = BOOK.length ? BOOK : SNAPSHOT;
+/** The pre-launch book (projected for arrival; full narratives and milestone sources install lazily with DetailPanels). */
+export let REGISTRY_YARD: YardCoin[] = BOOK;
 
-/** Full narratives arrive with the detail UI; retain the snapshot's milestone source-link merge. */
+/** Full narratives and milestone source links arrive lazily with the detail UI. */
 export function installYardBook(rows: readonly unknown[]): void {
   const book = fromRows(rows);
-  const snap = new Map(SNAPSHOT.map((c) => [c.id, c]));
-  REGISTRY_YARD = book.length ? book.map((c) => {
-    const old = snap.get(c.id);
-    if (!old) return c;
-    const src = new Map(old.milestones.filter((m) => m.sourceUrl).map((m) => [`${m.date}|${m.title}`, m.sourceUrl]));
-    return { ...c, milestones: c.milestones.map((m) => (m.sourceUrl || !src.get(`${m.date}|${m.title}`) ? m : { ...m, sourceUrl: src.get(`${m.date}|${m.title}`) })) };
-  }) : SNAPSHOT;
+  REGISTRY_YARD = book.length ? book : BOOK;
   civicSrc = null;
 }
 

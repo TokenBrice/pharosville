@@ -153,6 +153,23 @@ describe("detectEvents — the kinds", () => {
     expect(ev.find((e) => e.kind === "hull-class")).toMatchObject({ from: "medium hull", text: "USDY grew to a large hull" });
     expect(ev.find((e) => e.kind === "grade")).toMatchObject({ from: "A", to: "C" });
   });
+
+  it("reserve tokenized funds never emit launch, depeg, hull-class or grade events", () => {
+    const withFund = world({
+      coins: [...world().coins, { id: "buidl-blackrock", supply: 2e9 }],
+      peg: { ...world().peg, "buidl-blackrock": { bps: -650, depeg: true } },
+      dews: { ...world().dews, "buidl-blackrock": "DANGER" },
+      grades: { ...world().grades, "buidl-blackrock": "NR" },
+    });
+    const fundGrown = world({
+      coins: [...world().coins, { id: "buidl-blackrock", supply: 12e9 }],
+      peg: { ...world().peg, "buidl-blackrock": { bps: 5, depeg: false } },
+      dews: { ...world().dews, "buidl-blackrock": "CALM" },
+      grades: { ...world().grades, "buidl-blackrock": "A" },
+    });
+    const ev = run([{ w: world() }, { w: withFund }, { w: withFund }, { w: fundGrown }, { w: fundGrown }]).flat();
+    expect(ev).toEqual([]);
+  });
 });
 
 describe("big flow hour", () => {

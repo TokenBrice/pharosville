@@ -464,6 +464,8 @@ summary.hb-sec-h::before { content: ""; border: 4px solid transparent; border-le
 :is(.hb-result, .hb-yard) .hb-logo { width: 22px; height: 22px; }
 :is(.hb-result, .hb-yard, .hb-scope) .hb-logo { box-shadow: 0 0 0 0.5px var(--neat); }
 :is(.hb-result, .hb-yard) .hb-logo span { font-size: var(--fs-cap); }
+.hb-pill { display: inline-block; padding: 1px 7px; border: 0.5px solid var(--rule); border-radius: var(--r-ctl); background: var(--wash-2); color: var(--brass-ink); font-size: var(--fs-note); }
+.hb-pill.hb-sc { font-size: var(--fs-cap); }
 .hb-result b { font-weight: 600; font-size: var(--fs-lead); }
 .hb-result em { color: var(--ink-3); font-size: var(--fs-small); }
 .hb-result-kind { color: var(--ink-3); font-size: var(--fs-note); font-style: italic; }
@@ -572,8 +574,8 @@ summary.hb-sec-h::before { content: ""; border: 4px solid transparent; border-le
 .hb-scope .hb-crest { border-radius: 50%; box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--ink) 35%, transparent); }
 
 /* build line: one step per launch phase, keel → rigged */
-.hb-stages { margin-top: 2px; display: grid; grid-template-columns: repeat(5, 1fr); position: relative; }
-.hb-stages::before { content: ""; position: absolute; left: 10%; right: 10%; top: 6px; border-top: 0.5px solid var(--rule); }
+.hb-stages { margin-top: 2px; display: grid; grid-template-columns: repeat(6, 1fr); position: relative; }
+.hb-stages::before { content: ""; position: absolute; left: 8%; right: 8%; top: 6px; border-top: 0.5px solid var(--rule); }
 .hb-stages li { display: grid; justify-items: center; gap: 3px; text-align: center; position: relative; }
 .hb-stages i { width: 12px; height: 12px; transform: rotate(45deg); background: var(--paper); border: 1px solid var(--brass-ink); }
 .hb-stages li[data-done="true"] i { background: var(--rule); }

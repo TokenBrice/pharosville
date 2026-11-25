@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { HarbourModel, HarbourPayloads } from "../../model/types";
+import { isCoreBoat, type HarbourModel, type HarbourPayloads } from "../../model/types";
 import { dated, byId, completeSupply, currentSource, input, moverSentence, movers, type ReportSentence, type SupplyChange } from "./report";
 import { psiChange } from "../charts";
 import { truthCopy } from "../truth-copy";
@@ -74,7 +74,7 @@ export function browserObservation(model: HarbourModel | null, payloads: Harbour
   if (!model?.hasFleet || !(["stablecoins", "stability", "pegSummary"] as const).every((key) => currentSource(model, payloads, key, nowMs))) return null;
   const psi = payloads.stability!.data!, peg = payloads.pegSummary!.data!, cur = psi.current;
   if (!cur || model.readings.psi.computedAt == null || model.readings.psi.band == null) return null;
-  const live = new Set(model.boats.filter((b) => b.state !== "wrecked").map((b) => b.id));
+  const live = new Set(model.boats.filter((b) => isCoreBoat(b) && b.state !== "wrecked").map((b) => b.id));
   const supply = payloads.stablecoins!.data!.peggedAssets.filter((r) => live.has(r.id)).map((r) => ({ id: r.id, symbol: r.symbol, usd: completeSupply(r.circulating), buckets: Object.keys(r.circulating).sort() })).sort((a, b) => byId(a.id, b.id));
   const record = {
     version: 2, savedAt: nowMs, supplyMethod: "reported-usd-buckets-v1",

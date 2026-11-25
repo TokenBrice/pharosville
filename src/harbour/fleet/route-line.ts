@@ -22,8 +22,15 @@ const DASH_M = 9;
 const DRAW_S = 0.6;
 /** Re-read the itinerary this often (s): she casts off for the next leg, or the plan changes. */
 const REFRESH_S = 2;
+/** Faster re-read in backing-line mode so dashed arcs smoothly track sailing backed core stablecoins. */
+const BACKING_REFRESH_S = 0.5;
 
-export interface Itinerary { legs: Array<{ pts: Float32Array; current: boolean }>; ports: Array<[number, number]> }
+export interface Itinerary {
+  legs: Array<{ pts: Float32Array; current: boolean }>;
+  ports: Array<[number, number]>;
+  /** Backing-line mode (selected tokenized fund → backed core stablecoins): draw full dashed arcs with no behind-boat fade. */
+  backing?: boolean;
+}
 
 /**
  * Resample a polyline (x, z interleaved) to a fixed step, keeping both ends. Pure; unit-tested.
@@ -90,6 +97,7 @@ export class RouteLine {
   private readonly mat: THREE.ShaderMaterial;
   private id: string | null = null;
   private itinerary: Itinerary | null | undefined;
+  private backing = false;
   private refresh = 0;
   private total = 0;
   /** The current leg's resampled points (for her place along it). */
@@ -115,6 +123,7 @@ export class RouteLine {
     if (id === this.id) return;
     this.id = id;
     this.itinerary = undefined;
+    this.backing = false;
     this.refresh = 0;
     this.drawT = 0;
   }
@@ -124,21 +133,25 @@ export class RouteLine {
     const want = this.id && boat ? 1 : 0;
     this.k += (want - this.k) * (reduced ? 1 : 1 - Math.exp(-dt * 6));
     if (!want && this.k < 0.01) { this.k = 0; if (this.mesh) this.mesh.visible = false; return; }
-    if (this.id && (this.refresh -= dt) <= 0) { this.refresh = REFRESH_S; this.rebuild(this.read(this.id)); }
+    if (this.id && (this.refresh -= dt) <= 0) {
+      this.rebuild(this.read(this.id));
+      this.refresh = this.backing ? BACKING_REFRESH_S : REFRESH_S;
+    }
     const m = this.mesh;
     if (!m) return;
     m.visible = true;
     if (landed || this.drawT > 0) this.drawT += dt;
     const u = this.mat.uniforms;
-    u.uDraw.value = reduced ? this.total + 1 : this.total * Math.min(1, this.drawT / DRAW_S) ** 0.7;
+    u.uDraw.value = reduced || this.drawT >= DRAW_S ? this.total + 1 : this.total * (this.drawT / DRAW_S) ** 0.7;
     u.uK.value = this.k;
-    u.uBoatS.value = boat ? this.placeOf(boat[0], boat[1]) : 0;
+    u.uBoatS.value = this.backing ? -1e6 : boat ? this.placeOf(boat[0], boat[1]) : 0;
     // about 1.6 px wide at any zoom
     const cam = this.ctx.camera, h = this.ctx.renderer.domElement.clientHeight || innerHeight;
     const dist = cam.position.distanceTo(this.ctx.rig.target);
     u.uWidth.value = Math.max(0.25, (dist * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) * 2 / h) * 0.8);
     const night = this.ctx.uniforms.uNight.value;
-    u.uColor.value.setRGB(0.72, 0.5, 0.18).multiplyScalar(1 - 0.55 * night);
+    if (this.backing) u.uColor.value.setRGB(0.8, 0.64, 0.34).multiplyScalar(1 - 0.5 * night);
+    else u.uColor.value.setRGB(0.72, 0.5, 0.18).multiplyScalar(1 - 0.55 * night);
   }
 
   /** Her arc length on the current leg: the nearest resampled point. */
@@ -155,12 +168,14 @@ export class RouteLine {
   private rebuild(it: Itinerary | null): void {
     if (it === this.itinerary) return;
     this.itinerary = it;
+    this.backing = Boolean(it?.backing);
     this.disposeMesh();
     if (!it || !it.legs.length) { this.cur = []; this.total = 0; return; }
     const pos: number[] = [], side: number[] = [], nrm: number[] = [], sArr: number[] = [], idx: number[] = [];
-    let s = 0, v = 0;
+    let s = 0, maxS = 0, v = 0;
     const quad = () => { idx.push(v - 4, v - 3, v - 2, v - 3, v - 1, v - 2); };
     it.legs.forEach((leg, li) => {
+      if (this.backing) s = 0;
       const pts = resample(leg.pts, ROUTE_STEP_M);
       if (li === 0) this.cur = pts;
       const kind = leg.current ? 0 : 1;
@@ -176,8 +191,9 @@ export class RouteLine {
         v += 2;
         if (i > 0) idx.push(v - 4, v - 3, v - 2, v - 3, v - 1, v - 2);
       }
+      if (s > maxS) maxS = s;
     });
-    this.total = s;
+    this.total = this.backing ? maxS : s;
     // port ticks: a small brass cross at each port of call (shown from the start: the stops are known)
     for (const [x, z] of it.ports) {
       for (const [dx, dz] of [[1, 0], [0, 1]] as const) {

@@ -8,7 +8,7 @@ import { BootFailure, isAbort } from "../engine/failure";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import type { PreparedPrograms } from "../engine/prepare";
 import type { HarbourLayout, HullClass, Pier } from "../layout/types";
-import type { Boat, HarbourModel } from "../model/types";
+import { isTokenizedFund, type Boat, type HarbourModel } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
 import { hullSwellCache, pointSwellCache, WAVES } from "../ocean/waves";
 import type { HarbourSim } from "../sim/sim";
@@ -22,7 +22,7 @@ import { HoverLantern } from "./hover-lantern";
 import { bollardFor, MooringLines } from "./mooring-lines";
 import { RidingLights } from "./riding-lights";
 import { Fenders } from "./fenders";
-import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, FLAG_STREAMER, HouseFlags } from "./house-flags";
+import { FLAG_BURGEE, FLAG_DISTRESS, FLAG_HOUSE, FLAG_RESERVE, FLAG_STREAMER, HouseFlags } from "./house-flags";
 import { MastSignals } from "./storm-cones-mast";
 import { Bunting } from "./bunting";
 import { coastDistance } from "../sim/obstacles";
@@ -77,6 +77,8 @@ const RIDING_GLOW = 0.3;
 const LAMP_WARM = new THREE.Color("#FFD28E");
 const LAMP_RED = new THREE.Color("#FF3A24");
 const LAMP_GREEN = new THREE.Color("#3DFF7A");
+/** Calm raw bonded-linen parchment tint for reserve vessel furled sail covers (linear from sRGB). */
+const RESERVE_LINEN = new THREE.Color("#D8CCB4");
 
 /** CPU decorative lamplighting factor (05-P3 wave + E29 uLampArrive) for dynamic boat/Titan water pools. */
 function decorLampK(x: number, y: number, z: number, windowGlow: number): number {
@@ -205,6 +207,8 @@ interface BoatRec {
   mastK: number;
   /** A titan (titans.ts): flies an outsized house flag when her sails are furled, so the majors read at a glance. */
   titan: boolean;
+  /** Tokenized fund in Reserve Anchorage: raw linen sail cover, un-dyed canvas, rectangular reserve ensign, never a titan. */
+  reserve: boolean;
   /** Lane MOTION: flog through a tack (eased 0..1) and how far her oars are out (galleys, 0..1). */
   flog: number;
   row: number;
@@ -618,9 +622,10 @@ export class FleetSystem implements WorldSystem {
   }
 
   private reconcileBoat(boat: Boat, prev: BoatRec | undefined, staging?: FleetStaging): BoatRec | undefined {
+    const reserve = isTokenizedFund(boat);
     if (prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass &&
       prev.source.brandColor === boat.brandColor && prev.dead === (boat.state === "wrecked") &&
-      prev.source.nullPeg === boat.nullPeg) {
+      prev.source.nullPeg === boat.nullPeg && prev.reserve === reserve) {
       // pose/sim owns every other reading; no geometry, colour, paint or atlas work. Staged (the common refresh),
       // her new reading lands at commit, with no staged copy of the record.
       const rec = prev;
@@ -643,9 +648,9 @@ export class FleetSystem implements WorldSystem {
       staging.commits.push(() => { this.paint.set(values, inst * PAINT_TEXELS * 4); this.uniforms.uFleetPaint.value.needsUpdate = true; });
     };
     const kit = this.kit!, layout = this.layout!, mesh = this.mesh!;
-    const sameHull = prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass;
-    const hero = sameHull ? null : titanFor(boat.id, (v) => kit.hulls.has(v));
-    const titan = sameHull ? prev!.titan : !!hero;
+    const sameHull = prev && prev.source.rig === boat.rig && prev.source.hullClass === boat.hullClass && prev.reserve === reserve;
+    const hero = sameHull || reserve ? null : titanFor(boat.id, (v) => kit.hulls.has(v));
+    const titan = reserve ? false : sameHull ? prev!.titan : !!hero;
     const vid = sameHull ? prev!.variant.id : hero ?? pickVariant(this.index, boat.rig, boat.hullClass);
     const variant = vid ? kit.hulls.get(vid) : undefined;
     if (!variant) return;
@@ -654,7 +659,8 @@ export class FleetSystem implements WorldSystem {
     const wrecked = boat.state === "wrecked";
     if (prev) {
       // `dead` is the coin's state; `wrecked` is how she is drawn this frame (a dead coin under tow is afloat, 07-M6)
-      const paintChanged = prev.source.brandColor !== boat.brandColor || prev.variant.family !== variant.family || prev.dead !== wrecked;
+      const reserveChanged = prev.reserve !== reserve;
+      const paintChanged = prev.source.brandColor !== boat.brandColor || prev.variant.family !== variant.family || prev.dead !== wrecked || reserveChanged || prev.titan !== titan;
       if (prev.variant !== variant || prev.scale !== scale || prev.dead !== wrecked) {
         const geomFull = this.geomIds.get(variant.id)!;
         const geomLod = this.geomIds.get(`${variant.id}#lod`) ?? geomFull;
@@ -674,10 +680,12 @@ export class FleetSystem implements WorldSystem {
           geomCur: geom, wrecked, dead: wrecked, top: variant.top * scale, visualRadius: radius * scale, bollardSlot: null });
       }
       if (prev.source.brandColor !== boat.brandColor) { prev.brand.set(boat.brandColor); flagPigment(boat.brandColor, prev.flagBrand); }
-      if (paintChanged) paint(prev.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
-      if (prev.source.nullPeg !== boat.nullPeg) {
+      if (paintChanged) paint(prev.inst, wrecked || titan ? null : boat.id, variant.family, wrecked || reserve ? null : boat.brandColor);
+      if (prev.source.nullPeg !== boat.nullPeg || reserveChanged) {
         prev.reading = sternLampLit(boat, "under-way"); prev.lit = sternLampLit(boat, "moored");
       }
+      prev.reserve = reserve;
+      if (prev.titan !== titan) { prev.titan = titan; prev.mastK = titan ? 2 : hash01(boat.id + "#mast"); }
       prev.source = boat;
       return finish(prev);
     }
@@ -697,11 +705,11 @@ export class FleetSystem implements WorldSystem {
       phi: hash01(boat.id + "#bob") * Math.PI * 2, slot: -1, brand: new THREE.Color(boat.brandColor), flagBrand: flagPigment(boat.brandColor),
       bollardSlot: null, bow: null, med: false, stern: null, visible: false, dist: 0,
       reading: sternLampLit(boat, "under-way"), lit: sternLampLit(boat, "moored"), flag: 1, flog: 0, row: 0, brail: 0, dox: 0, doz: 0, gyaw: 0, struck: false,
-      mastK: titan ? 2 : hash01(boat.id + "#mast"), titan, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
+      mastK: titan ? 2 : hash01(boat.id + "#mast"), titan, reserve, cx: 0, cy: 0, cz: 0, r: loa * 0.5, top: variant.top * scale,
       swell: hullSwellCache(), posed: true, visualRadius: radius * scale, sheer: sheerOf(boat.id),
     };
     if (staging) { staging.allocated.push(rec.inst); mesh.setVisibleAt(rec.inst, false); rec.posed = false; }
-    this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family, wrecked ? null : boat.brandColor);
+    this.writePaint(rec.inst, wrecked || titan ? null : boat.id, variant.family, wrecked || reserve ? null : boat.brandColor);
     return rec;
   }
 
@@ -1363,7 +1371,7 @@ export class FleetSystem implements WorldSystem {
       // px (the overview: a dot of brand colour over each hull); a struck rig flies it from the stern staff. It
       // replaces the kit's plain pennant. Aground on the Shoals: she keeps her colours and flies the chequered distress
       // flag above them, so the coin still reads.
-      const distress = shoaled;
+      const distress = shoaled && !b.reserve;
       if (this.flags && !moving && !b.wrecked && b.visible && b.dist < tier.flagRange) {
         const pxM = pxPerM / b.dist;
         const base = b.titan ? b.loa * 0.3 : THREE.MathUtils.clamp(b.loa * 0.21, 1.3, 4.6);
@@ -1384,22 +1392,24 @@ export class FleetSystem implements WorldSystem {
         else { this.lampAt(v.masthead.x, v.masthead.y, v.masthead.z); this.v.y += size * 0.68 + (this.mastSignals?.lift(b.id, b.loa) ?? 0); }
         // E04: her colours in the harbour's pigment and air; the hovered / selected / searched hull flies them full
         const hiFlag = b.hi > 0.05;
+        const style = b.reserve ? FLAG_RESERVE : b.titan ? FLAG_HOUSE : FLAG_BURGEE;
         this.flags.add(this.v.x, this.v.y, this.v.z, size, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), b.slot, b.phi * 3,
-          hiFlag ? b.brand : b.flagBrand, b.titan ? FLAG_HOUSE : FLAG_BURGEE, hiFlag);
+          hiFlag ? b.brand : b.flagBrand, style, hiFlag);
         if (distress) {
           // hoisted above her colours (below them the yard and the brailed sail would hide it)
           const dSize = size * 0.7;
           this.flags.add(this.v.x, this.v.y + dSize * 0.72 + 0.15, this.v.z, dSize, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 0.7, b.brand, FLAG_DISTRESS);
         }
         // 06-F7c a titan flies a long silk vexillum from the truck, above her house flag (decorative)
-        if (b.titan && !distress && !b.struck) {
+        if (b.titan && !b.reserve && !distress && !b.struck) {
           this.flags.add(this.v.x, this.v.y + 0.45, this.v.z, b.loa * 0.42, flagDownwind, Math.atan2(cam.position.x - x, cam.position.z - z), -1, b.phi * 3 + 1.3,
             b.hi > 0.05 ? b.brand : b.flagBrand, FLAG_STREAMER, b.hi > 0.05);
         }
         b.flag = 0;
       }
       if (poseHull) {
-        this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, b.brand.r, b.brand.g, b.brand.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);
+        const cover = b.reserve ? RESERVE_LINEN : b.brand;
+        this.writeData(b.inst, b.wrecked ? 0 : 1 - sail, b.wrecked ? 0 : b.swing, b.hi, cover.r, cover.g, cover.b, b.wrecked ? -2 : b.slot, b.wrecked ? 0 : b.flag, far, b.struck);
         // 06-F6: the stern lantern's glass is lit exactly when her stern / riding lamp is (sternLampLit: a peg reading;
         // moored, the hash-picked minority) — the same flag as the riding light below, by day too (dimmed by uLamp)
         const lantern = pegLive && (moving || ph === PH_ANCHORED ? b.reading : b.lit) ? 1 : 0;
@@ -1473,7 +1483,7 @@ export class FleetSystem implements WorldSystem {
           // the launch's splash: a burst of foam round her as she takes the water (07-M12)
           if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8, b.phi);
           if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5, b.phi); st.moving++; }
-          else if (ph === PH_ANCHORED) {
+          else if (ph === PH_ANCHORED && !b.reserve) {
             // aground: surf breaks and churns round the hull, pulsing with the swell
             const surge = 0.5 + 0.5 * Math.sin(time * 1.4 + b.phi);
             wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.6 + 0.4 * surge), 1.4 + 0.6 * surge, b.loa * 0.7, b.phi);
@@ -1691,7 +1701,7 @@ export class FleetSystem implements WorldSystem {
       const k = Math.min(1 - THREE.MathUtils.smoothstep(d, s.swing + b.loa * 0.35, s.swing + b.loa * 1.4), THREE.MathUtils.smoothstep(lines, 0, 0.6));
       if (k <= 0) return;
       this.v.copy(v.bowCleat).applyMatrix4(this.m4);
-      // a buoy ring for moorings; the anchor rode enters the water for the far anchorage and the Shoals
+      // a buoy ring for moorings; the anchor rode enters the water for the far anchorage, Reserve Anchorage and the Shoals
       const ay = s.kind === "mooring" ? bob + 0.85 : bob - 0.1;
       this.lines.add(s.x, ay, s.z, this.v.x, this.v.y, this.v.z, k);
     }

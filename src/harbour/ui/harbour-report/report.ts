@@ -1,4 +1,4 @@
-import type { CoinRow, EndpointKey, HarbourModel, HarbourPayloads } from "../../model/types";
+import { isCoreBoat, type CoinRow, type EndpointKey, type HarbourModel, type HarbourPayloads } from "../../model/types";
 import { endpointTruth } from "../../model/truth";
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { psiObservations, utcObservation } from "../charts";
@@ -74,7 +74,11 @@ export function harbourReport(model: HarbourModel | null, payloads: HarbourPaylo
   };
   const supplyInputs = [...sourceInputs("stablecoins"), input("Comparison bucket", days === 1 ? "circulatingPrevDay" : "circulatingPrevWeek"), input("Reported comparison window", window), input("Previous bucket observation time", "Not supplied by source")];
   if (currentSource(model, payloads, "stablecoins", nowMs)) {
-    const rows = payloads.stablecoins!.data!.peggedAssets;
+    const allRows = payloads.stablecoins!.data!.peggedAssets;
+    const coreIds = model && (model.reserveCount || model.excludedCount || model.boats.some((b) => !isCoreBoat(b) || b.state === "wrecked"))
+      ? new Set(model.boats.filter((b) => isCoreBoat(b) && b.state !== "wrecked").map((b) => b.id))
+      : null;
+    const rows = coreIds ? allRows.filter((r) => coreIds.has(r.id)) : allRows;
     const counts = new Map<string, number>();
     for (const r of rows) counts.set(r.id, (counts.get(r.id) ?? 0) + 1);
     const changes: SupplyChange[] = [], omitted: CoinRow[] = [];

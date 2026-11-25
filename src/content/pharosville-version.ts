@@ -49,6 +49,7 @@ export const PHAROSVILLE_RELEASE_VERSIONS = {
   seaAndSky: "v1.9.0",
   courtyardAndRoofs: "v1.10.0",
   titansAndWakes: "v1.11.0",
+  reserveAnchorage: "v1.12.0",
 } as const;
 
-export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.titansAndWakes;
+export const PHAROSVILLE_LATEST_VERSION = PHAROSVILLE_RELEASE_VERSIONS.reserveAnchorage;

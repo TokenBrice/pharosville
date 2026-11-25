@@ -334,7 +334,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
 
   // 1. static hulls hold one slot for the whole cycle
   for (const { b } of ordered) {
-    if (b.state === "wrecked") { plans.set(b.id, empty(b, "none")); continue; }
+    if (b.state === "wrecked" || b.state === "reserve") { plans.set(b.id, empty(b, "none")); continue; }
     if (b.circuit.length !== 1) continue;
     const where = whereOfStop(b.circuit[0].chain);
     const foot = feet.get(b.id)!, isHero = heroes.has(b.id);

@@ -23,6 +23,7 @@ function ReadingSection({ id, endpoint, title }: typeof SECTIONS[number] & { id:
   </details>;
 }
 
-export function CoinReadings({ id }: { id: string; model: HarbourModel | null }) {
-  return <>{SECTIONS.map((section) => <ReadingSection key={`${id}:${section.endpoint}`} id={id} {...section} />)}</>;
+export function CoinReadings({ id, mode = "stablecoin" }: { id: string; model: HarbourModel | null; mode?: "stablecoin" | "fund" }) {
+  const sections = mode === "fund" ? SECTIONS.filter((s) => s.endpoint !== "depegEvents") : SECTIONS;
+  return <>{sections.map((section) => <ReadingSection key={`${id}:${section.endpoint}`} id={id} {...section} />)}</>;
 }

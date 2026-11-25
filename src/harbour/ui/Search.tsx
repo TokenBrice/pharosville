@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { HarbourModel } from "../model/types";
+import { isTokenizedFund, type HarbourModel } from "../model/types";
 import { chainLogo, Logo } from "./bits";
 import { PANEL_LANDMARKS } from "./facts";
 import { money } from "./format";
@@ -10,7 +10,7 @@ import { getLayout, type PickHit } from "./services";
 import { PHASE_NAME, yardCoins } from "./yard";
 import { deadRecords } from "../model/obituary";
 
-interface Item extends Searchable { hit: PickHit; logo: string | null; color: string; note: string }
+interface Item extends Searchable { hit: PickHit; logo: string | null; color: string; note: string; tag?: string; desc?: string }
 
 /** '/' search: a compact chart-paper field over coins, harbours and landmarks; ↑/↓ choose, Enter sails there. */
 export function Search({ onClose }: { onClose: () => void }) {
@@ -29,7 +29,21 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
   const items = useMemo<Item[]>(() => {
     const out: Item[] = (model?.boats ?? []).map((b) => ({
       id: b.id, symbol: b.symbol, name: b.name, supply: b.supply, hit: { kind: "boat", id: b.id }, logo: b.logo, color: b.brandColor, note: money(b.supply),
+      ...(isTokenizedFund(b) ? { tag: "Fund" } : {}),
     }));
+    const byId = new Map((model?.boats ?? []).map((b) => [b.id, b]));
+    for (const [parentId, variants] of Object.entries(model?.variantsByParent ?? {})) {
+      const parent = byId.get(parentId);
+      if (!parent) continue;
+      for (const v of variants) {
+        if (byId.has(v.id)) continue;
+        out.push({
+          id: `variant:${v.id}`, symbol: v.symbol, name: `${v.name} ${parent.symbol}`, supply: Math.min(v.supply, parent.supply * 0.5),
+          hit: { kind: "boat", id: parent.id }, logo: parent.logo, color: parent.brandColor,
+          tag: "Variant", desc: `tracked variant of ${parent.symbol}, excluded from fleet totals`, note: `→ ${parent.symbol}`,
+        });
+      }
+    }
     for (const h of model?.harbours ?? []) {
       out.push({ id: `chain:${h.chain}`, symbol: h.chain, name: h.piered ? `${h.chain} harbour` : `${h.chain}, a far port`, supply: h.supplyUsd,
         hit: { kind: "harbour", id: h.chain }, logo: chainLogo(h.chain), color: "var(--fill-chain)", note: money(h.supplyUsd) });
@@ -53,10 +67,11 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
     const zoneIds = new Set(seaZones(L).map((z) => ZONE_PANEL[z.kind]).filter(Boolean));
     for (const id of PANEL_LANDMARKS) {
       if (id === "tide-board") continue;
-      if (!L?.landmarks.some((l) => l.id === id) && !plotFor(L, id) && !zoneIds.has(id)) continue;
+      const isReserveZone = id === "reserve-anchorage";
+      if (!L?.landmarks.some((l) => l.id === id) && !plotFor(L, id) && !zoneIds.has(id) && !(isReserveZone && L?.landmarks.some((l) => l.id === "warehouse"))) continue;
       const name = placeName(L, id);
       out.push({ id: `lm:${id}`, symbol: name, name: name.replace(/^The /, ""), supply: 0,
-        hit: { kind: "landmark", id }, logo: null, color: "var(--rule)", note: zoneIds.has(id) ? "sea zone" : "landmark" });
+        hit: { kind: "landmark", id }, logo: null, color: "var(--rule)", note: zoneIds.has(id) || isReserveZone ? "sea zone" : "landmark" });
     }
     return out;
   }, [model, store]);
@@ -108,9 +123,9 @@ function SearchBox({ shown, model, onClose }: { shown: boolean; model: HarbourMo
             <li key={r.id} id={`hb-sr-${i}`} role="option" aria-selected={i === activeIndex} className="hb-result" data-kind={r.hit.kind}
               onMouseEnter={() => setActive(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(i)}>
               {r.hit.kind === "landmark" ? <span className="hb-logo hb-lm-glyph" aria-hidden="true" /> : <Logo src={r.logo} label={r.symbol} color={r.color} />}
-              <b>{r.symbol}</b>
-              <em>{r.hit.kind === "landmark" ? "" : r.name}</em>
-              <span className={r.hit.kind === "landmark" || r.hit.kind === "yard" || r.hit.kind === "wreck" ? "hb-result-kind" : "hb-num"}>{r.note}</span>
+              <b>{r.symbol}{r.tag && <> <span className="hb-pill hb-sc">{r.tag}</span></>}</b>
+              <em>{r.desc ?? (r.hit.kind === "landmark" ? "" : r.name)}</em>
+              <span className={r.tag === "Variant" || r.hit.kind === "landmark" || r.hit.kind === "yard" || r.hit.kind === "wreck" ? "hb-result-kind" : "hb-num"}>{r.note}</span>
             </li>
           ))}
         </ul>

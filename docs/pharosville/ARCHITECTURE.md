@@ -1,12 +1,14 @@
 # PharosVille Architecture
 
-Last updated: 2026-10-24
+Last updated: 2026-11-25
 
 PharosVille is The Harbour: a desktop-gated React shell around one imperative
-three.js WebGL2 world (`src/harbour/`). Every stablecoin is one boat sailing a
+three.js WebGL2 world (`src/harbour/`). Every core stablecoin is one boat sailing a
 circuit between its chains' piers, docking longest where it holds the most
-supply; the lighthouse beam is the Pharos Stability Index; sea state, weather
-and fog carry off-peg share, stress signals and stale data. The world carries
+supply; tokenized funds tracked under Pharos Listing Policy 2.0 anchor separately
+in Reserve Anchorage off the Bonded Warehouse (excluded from core supply, sea
+state, weather and safety-grade totals); the lighthouse beam is the Pharos Stability
+Index; sea state, weather and fog carry off-peg share, stress signals and stale data. The world carries
 the meaning; text appears only on demand (hover tag, side panel, ledger).
 Decisions D1-D14 live in `agents/2026-10-13-pharosville-reboot/PLAN.md`.
 Since v1.2.0 the town, civic buildings and fleet share the Pharos's era (a

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PHAROSVILLE_API_CLIENT_ENDPOINTS } from "../../shared/lib/pharosville-api-client-contract";
-import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-registry";
+import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-active-ids";
 import { PHAROSVILLE_API_ENDPOINT_PATHS } from "../../shared/lib/pharosville-api-endpoints";
 import {
   PHAROSVILLE_PROXY_BLOCKED_VARIANTS,
@@ -44,7 +44,7 @@ function makeContext(url: string, init?: {
   };
 }
 
-const epochCacheUrl = (url: string) => url.replace("/api/", "/api/__projection/pv3/api/");
+const epochCacheUrl = (url: string) => url.replace("/api/", "/api/__projection/pv4/api/");
 
 class MemoryEdgeCache {
   readonly putUrls: string[] = [];
@@ -82,8 +82,21 @@ const projectionMeta = { updatedAt: 1_700_000_000, ageSeconds: 5, status: "degra
 const projectionFixtures: Array<{ key: PharosVilleApiEndpointKey; input: ProjectionJson; expected: ProjectionJson }> = [
   {
     key: "stablecoins",
-    input: { _meta: projectionMeta, fxFallbackRates: { USD: 1 }, peggedAssets: [{ id: "live-unregistered", name: "Fixture", symbol: "FIX", pegType: "peggedUSD", chains: ["Ethereum", "Unknown"], circulating: { peggedUSD: 100 }, circulatingPrevDay: { peggedUSD: 90 }, circulatingPrevWeek: null, circulatingPrevMonth: { peggedUSD: 70 }, chainCirculating: { Ethereum: { current: 100, circulatingPrevDay: 90 }, Unknown: { current: null }, Missing: null }, price: 1, geckoId: "fixture" }] },
-    expected: { _meta: projectionMeta, peggedAssets: [{ id: "live-unregistered", name: "Fixture", symbol: "FIX", pegType: "peggedUSD", chains: ["Ethereum", "Unknown"], circulating: { peggedUSD: 100 }, circulatingPrevDay: { peggedUSD: 90 }, circulatingPrevWeek: null, circulatingPrevMonth: { peggedUSD: 70 }, chainCirculating: { Ethereum: { current: 100 }, Unknown: { current: null }, Missing: null } }] },
+    input: {
+      _meta: projectionMeta,
+      fxFallbackRates: { USD: 1 },
+      peggedAssets: [
+        { id: "live-unregistered", name: "Fixture", symbol: "FIX", pegType: "peggedUSD", chains: ["Ethereum", "Unknown"], circulating: { peggedUSD: 100 }, circulatingPrevDay: { peggedUSD: 90 }, circulatingPrevWeek: null, circulatingPrevMonth: { peggedUSD: 70 }, chainCirculating: { Ethereum: { current: 100, circulatingPrevDay: 90 }, Unknown: { current: null }, Missing: null }, price: 1, geckoId: "fixture" },
+        { id: "frozen-fixture", name: "Frozen Fixture", symbol: "FRZ", pegType: "peggedUSD", chains: ["Ethereum"], circulating: { peggedUSD: 0 }, circulatingPrevDay: null, circulatingPrevWeek: null, circulatingPrevMonth: null, chainCirculating: { Ethereum: { current: 0 } }, frozen: true, frozenAt: "2026-06-01", price: null },
+      ],
+    },
+    expected: {
+      _meta: projectionMeta,
+      peggedAssets: [
+        { id: "live-unregistered", name: "Fixture", symbol: "FIX", pegType: "peggedUSD", chains: ["Ethereum", "Unknown"], circulating: { peggedUSD: 100 }, circulatingPrevDay: { peggedUSD: 90 }, circulatingPrevWeek: null, circulatingPrevMonth: { peggedUSD: 70 }, chainCirculating: { Ethereum: { current: 100 }, Unknown: { current: null }, Missing: null } },
+        { id: "frozen-fixture", name: "Frozen Fixture", symbol: "FRZ", pegType: "peggedUSD", chains: ["Ethereum"], circulating: { peggedUSD: 0 }, circulatingPrevDay: null, circulatingPrevWeek: null, circulatingPrevMonth: null, chainCirculating: { Ethereum: { current: 0 } }, frozen: true },
+      ],
+    },
   },
   {
     key: "chains",
@@ -133,7 +146,7 @@ describe("PharosVille API proxy", () => {
     expect(body).toEqual(panelEndpointProjector(key)(input));
     expect(PHAROSVILLE_PANEL_SCHEMAS[key].safeParse(body).success).toBe(true);
     expect(first.headers.get("cache-control")).toBe(`public, max-age=${PHAROSVILLE_PANEL_ENDPOINT_REGISTRY[key].cacheTtlSec}`);
-    expect(first.headers.get("etag")).toMatch(/^"pv3-[a-f0-9]{64}"$/);
+    expect(first.headers.get("etag")).toMatch(/^"pv4-[a-f0-9]{64}"$/);
     expect(first.headers.get("x-content-type-options")).toBe("nosniff");
     expect(first.headers.get("x-api-key")).toBeNull();
     expect(JSON.stringify(body)).not.toContain("test-proxy-key");
@@ -142,7 +155,7 @@ describe("PharosVille API proxy", () => {
     expect(second.status).toBe(304);
     expect(second.body).toBeNull();
     expect(request).toHaveBeenCalledTimes(1);
-    expect(cache.putUrls.every((url) => url.includes("/__projection/pv3/") && !url.includes("test-proxy-key"))).toBe(true);
+    expect(cache.putUrls.every((url) => url.includes("/__projection/pv4/") && !url.includes("test-proxy-key"))).toBe(true);
   });
 
   it.each(PHAROSVILLE_PANEL_ENDPOINT_KEYS)("keeps %s panel 4xx honest and demotes 5xx to Warning-110 last-good", async (key) => {
@@ -227,7 +240,7 @@ describe("PharosVille API proxy", () => {
       const response = await onRequest(makeContext("https://pharosville.pharos.watch/api/chains"));
       tags.push(response.headers.get("etag"));
     }
-    expect(tags[0]).toMatch(/^"pv3-[a-f0-9]{64}"$/);
+    expect(tags[0]).toMatch(/^"pv4-[a-f0-9]{64}"$/);
     expect(tags[1]).toBe(tags[0]);
     expect(tags[2]).not.toBe(tags[0]);
   });
@@ -241,7 +254,7 @@ describe("PharosVille API proxy", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json(fixture.input));
     const response = await onRequest(makeContext(url, { headers: { "if-none-match": '"old-upstream"' } }));
     expect(response.status).toBe(200);
-    expect(response.headers.get("etag")).toMatch(/^"pv3-[a-f0-9]{64}"$/);
+    expect(response.headers.get("etag")).toMatch(/^"pv4-[a-f0-9]{64}"$/);
     await expect(response.json()).resolves.toEqual(fixture.expected);
     expect(fetchMock).toHaveBeenCalledOnce();
   });
@@ -260,7 +273,7 @@ describe("PharosVille API proxy", () => {
     const first = await onRequest(makeContext(url, { waitUntilPromises }));
     await Promise.all(waitUntilPromises);
     cache.responses.delete(epochCacheUrl(url));
-    const lastGoodUrl = "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/chains";
+    const lastGoodUrl = "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv4/api/chains";
     const stored = (await cache.match(new Request(lastGoodUrl)))!;
     const headers = new Headers(stored.headers);
     headers.set("age", "3600");
@@ -309,7 +322,7 @@ describe("PharosVille API proxy", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("public, max-age=60");
     expect(response.headers.get("content-type")).toContain("application/json");
-    expect(response.headers.get("etag")).toMatch(/^"pv3-[a-f0-9]{64}"$/);
+    expect(response.headers.get("etag")).toMatch(/^"pv4-[a-f0-9]{64}"$/);
     expect(response.headers.get("retry-after")).toBe("15");
     expect(response.headers.get("warning")).toBe("199 proxy fixture");
     expect(response.headers.get("x-data-age")).toBe("12");
@@ -356,7 +369,7 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("cache-control")).toBe("public, max-age=900");
     expect(cache.putUrls).toEqual([
       epochCacheUrl("https://pharosville.pharos.watch/api/stablecoins"),
-      "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/stablecoins",
+      "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv4/api/stablecoins",
     ]);
     expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
     await expect(cache.match(new Request(epochCacheUrl("https://pharosville.pharos.watch/api/stablecoins"))))
@@ -374,7 +387,7 @@ describe("PharosVille API proxy", () => {
           "cache-control": "public, max-age=600",
           "content-type": "application/json",
           "x-pharosville-proxy": "1",
-          etag: '"pv3-fixture"',
+          etag: '"pv4-fixture"',
         },
       }),
     );
@@ -445,10 +458,10 @@ describe("PharosVille API proxy", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(cache.putUrls).toEqual([
       epochCacheUrl("https://pharosville.pharos.watch/api/stablecoins"),
-      "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/stablecoins",
+      "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv4/api/stablecoins",
     ]);
     expect(cache.putUrls.join(" ")).not.toContain("test-proxy-key");
-    const lastGood = await cache.match(new Request("https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/stablecoins"));
+    const lastGood = await cache.match(new Request("https://pharosville.pharos.watch/api/__last-good/api/__projection/pv4/api/stablecoins"));
     expect(await lastGood?.text()).not.toContain("test-proxy-key");
     expect([...lastGood!.headers.keys()]).not.toContain("x-api-key");
   });
@@ -614,6 +627,8 @@ describe("PharosVille API proxy", () => {
 
   it("projects safety grades down to the contract the app actually reads", async () => {
     const activeId = [...RUNTIME_ACTIVE_IDS][0]!;
+    const fundId = "buidl-blackrock";
+    expect(RUNTIME_ACTIVE_IDS.has(fundId)).toBe(true);
     const upstream = {
       model: "v9",
       methodologyVersion: "9.8",
@@ -622,7 +637,8 @@ describe("PharosVille API proxy", () => {
       publicationStatus: "current",
       _meta: { updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" },
       grades: [
-        { id: activeId, score: 80, grade: "A-" },
+        { id: activeId, score: 80, grade: "A-", ratingStatus: "rated", notRatedReason: null },
+        { id: fundId, score: null, grade: "NR", ratingStatus: "not-rated", notRatedReason: "tokenized-fund", internalDetail: "dropped" },
         { id: "not-a-tracked-stablecoin", score: 12, grade: "F" },
       ],
     };
@@ -639,9 +655,9 @@ describe("PharosVille API proxy", () => {
     // Grades outside the runtime active set can never be reached: `grades` has
     // one consumer and it only ever indexes by an id that passed
     // RUNTIME_ACTIVE_IDS. Malformed rows remain visible to contract validation.
-    expect(body.grades).toHaveLength(1);
-    expect(body.grades[0]?.id).toBe(activeId);
-    expect(body.grades[0]).toEqual({ id: activeId, grade: "A-" });
+    expect(body.grades).toHaveLength(2);
+    expect(body.grades[0]).toEqual({ id: activeId, grade: "A-", ratingStatus: "rated", notRatedReason: null });
+    expect(body.grades[1]).toEqual({ id: fundId, grade: "NR", ratingStatus: "not-rated", notRatedReason: "tokenized-fund" });
     expect(body.updatedAt).toBe(1_700_000_000);
     expect(body.model).toBeUndefined();
     expect(body.methodologyVersion).toBe("9.8");
@@ -656,8 +672,8 @@ describe("PharosVille API proxy", () => {
     const cache = new MemoryEdgeCache();
     installEdgeCache(cache);
     const url = "https://pharosville.pharos.watch/api/safety-grades";
-    await cache.put(new Request("https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/safety-grades"), Response.json({ grades: [] }, {
-      headers: { etag: '"pv3-fixture"', "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)), "x-data-age": "5" },
+    await cache.put(new Request("https://pharosville.pharos.watch/api/__last-good/api/__projection/pv4/api/safety-grades"), Response.json({ grades: [] }, {
+      headers: { etag: '"pv4-fixture"', "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)), "x-data-age": "5" },
     }));
     const stream = new ReadableStream({ start(controller) {
       if (kind === "interrupted") controller.error(new Error("body interrupted"));
@@ -690,7 +706,7 @@ describe("PharosVille API proxy", () => {
 
   describe("last-good fallback", () => {
     const SHORT_TTL_URL = "https://pharosville.pharos.watch/api/stablecoins";
-    const LAST_GOOD_URL = "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv3/api/stablecoins";
+    const LAST_GOOD_URL = "https://pharosville.pharos.watch/api/__last-good/api/__projection/pv4/api/stablecoins";
 
     // The long-TTL copy shares `caches.default` with the CDN, so both halves
     // matter: the key has to be in-zone or the write is not documented to land

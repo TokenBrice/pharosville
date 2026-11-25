@@ -27,7 +27,7 @@
  *   grade       safetyGrades the grade's letter changes (A-/A/A+ are one letter; NR is no grade)
  */
 import { money, titleCase } from "../ui/format";
-import type { EndpointKey, HarbourModel, HarbourPayloads, HullClass } from "./types";
+import { isTokenizedFund, type EndpointKey, type HarbourModel, type HarbourPayloads, type HullClass } from "./types";
 
 export type EventKind = "depeg" | "recovery" | "launch" | "death" | "psi-band" | "dews-band" | "flow-hour" | "hull-class" | "grade";
 
@@ -118,6 +118,7 @@ export function eventSnapshot(model: HarbourModel, payloads: HarbourPayloads, at
   const stressRows = (payloads.stress?.data?.signals ?? {}) as unknown as Record<string, Loose>;
   const coins = new Map<string, CoinObs>();
   for (const b of model.boats) {
+    if (isTokenizedFund(b)) continue;
     const pr = pegRows.get(b.id);
     coins.set(b.id, {
       symbol: b.symbol,

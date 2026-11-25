@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { EndpointKey, EndpointTruth, HarbourModel, HarbourPayloads } from "../model/types";
+import { isTokenizedFund, type EndpointKey, type EndpointTruth, type HarbourModel, type HarbourPayloads } from "../model/types";
 import { truthCopy, type ReadingName } from "./truth-copy";
 
 export const READING_NAMES: Record<EndpointKey, ReadingName> = {
@@ -8,12 +8,12 @@ export const READING_NAMES: Record<EndpointKey, ReadingName> = {
 };
 const ABSENT: EndpointTruth = { state: "unavailable", reason: "no-observation", ageSec: null, serverStatus: null };
 
-/** Coverage uses retained, finite observations; the sea still divides by all live supply. */
+/** Coverage uses retained, finite observations; the sea divides by live core stablecoin supply. */
 export function readingCoverage(model: HarbourModel | null, key: EndpointKey): number | null {
   if (!model || (key !== "pegSummary" && key !== "stress")) return null;
   let total = 0, observed = 0;
   for (const b of model.boats) {
-    if (b.state === "wrecked") continue;
+    if (b.state === "wrecked" || isTokenizedFund(b)) continue;
     total += b.supply;
     if (key === "pegSummary" ? b.pegDeviationBps != null && Number.isFinite(b.pegDeviationBps) : b.dews != null) observed += b.supply;
   }

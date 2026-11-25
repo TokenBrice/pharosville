@@ -16,9 +16,34 @@ export const SOURCE_PATHS = [
   "public/logos",
   "public/_redirects",
   "shared/data/dead-stablecoins.json",
+  "shared/data/stablecoins/canonical-order.json",
   "shared/data/stablecoins/coins",
+  "shared/data/stablecoins/domains/reserves",
   "shared/data/stablecoins/legacy-route-redirects.json",
+  "shared/data/stablecoins/listing-decisions.json",
 ];
+
+export async function loadCanonicalOrder(source) {
+  return JSON.parse(await readFile(join(source, "shared/data/stablecoins/canonical-order.json"), "utf8"));
+}
+
+export async function loadListingDecisions(source) {
+  return JSON.parse(await readFile(join(source, "shared/data/stablecoins/listing-decisions.json"), "utf8"));
+}
+
+export async function loadReservesDomain(source) {
+  const dir = join(source, "shared/data/stablecoins/domains/reserves");
+  const files = (await readdir(dir)).filter((f) => f.endsWith(".json")).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const byId = new Map();
+  for (const f of files) {
+    const parsed = JSON.parse(await readFile(join(dir, f), "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const id = typeof parsed.id === "string" && parsed.id ? parsed.id : f.slice(0, -".json".length);
+      byId.set(id, parsed);
+    }
+  }
+  return byId;
+}
 
 export async function loadRegistry(source) {
   const dir = join(source, "shared/data/stablecoins/coins");

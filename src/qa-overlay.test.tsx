@@ -22,7 +22,8 @@ it("mounts actual overlay components through StoreContext with keyboard close/fo
   fireEvent.keyDown(window, { key: "Escape" });
   await waitFor(() => expect(document.activeElement).toBe(searchButton));
   fireEvent.keyDown(searchButton, { key: "l" });
-  await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(5));
+  await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(6));
+  expect(screen.getByRole("tab", { name: /Funds/ })).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: /Coins/ }));
   expect(screen.getByRole("table").textContent).toContain("USDC");
   fireEvent.keyDown(window, { key: "Escape" });

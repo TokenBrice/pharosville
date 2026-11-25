@@ -78,8 +78,8 @@ The detail boundary installs complete cemetery prose and the prelaunch book
 before mounting panels, search or ledger. Hover, picking and world-model work keep
 exact eager projections. `scripts/vite/static-data-plugin.ts` derives these from
 the canonical synced JSON for both Vite and Vitest, using the same cemetery
-classifier as full records; no duplicate hand-maintained data can drift. The
-snapshot milestone-source merge remains in `installYardBook`.
+classifier as full records; no duplicate hand-maintained data can drift. Validated
+HTTPS milestone source links travel in lazy `prelaunch.json` and install with `installYardBook`.
 
 Overlay projections use one analytic camera context per UI frame. Canvas rects
 are invalidated by resize/scroll observers, label/tag sizes by ResizeObserver and

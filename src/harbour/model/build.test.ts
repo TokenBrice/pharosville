@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import LISTING_POLICY from "virtual:pharosville-listing-policy";
 import { makeCoins, makePayloads, PIERED, T0_MS } from "../sim/test-fixtures";
 import { buildHarbourModel, quantizeShares } from "./build";
 import { hullClassFor, rigFor } from "./classify";
-import type { HarbourPayloads } from "./types";
+import { isCoreBoat, isTokenizedFund, type CoinRow, type HarbourPayloads } from "./types";
 
 const opts = { pieredChains: PIERED, dead: [] };
 
@@ -168,5 +169,155 @@ describe("verified source freshness", () => {
       p.stablecoins = { ...p.stablecoins, meta: { updatedAt: T0_MS / 1000, ageSeconds, status: "fresh" } };
       expect(buildHarbourModel(p, T0_MS, opts).truth.stablecoins).toMatchObject({ state: "unknown", ageSec: null });
     }
+  });
+});
+
+describe("Policy 2.0 classification and strict core-aggregate separation", () => {
+  const mkRow = (id: string, supply: number, extra: Partial<CoinRow> = {}, omitHistory = false): CoinRow => {
+    const pegType = extra.pegType ?? "peggedUSD";
+    return {
+      id,
+      name: extra.name ?? id,
+      symbol: extra.symbol ?? id.toUpperCase(),
+      pegType,
+      circulating: { [pegType]: supply },
+      chainCirculating: extra.chainCirculating ?? { Ethereum: { current: supply } },
+      chains: extra.chains ?? ["Ethereum"],
+      ...(omitHistory ? {} : {
+        circulatingPrevWeek: extra.circulatingPrevWeek ?? { [pegType]: supply },
+        circulatingPrevMonth: extra.circulatingPrevMonth ?? { [pegType]: supply },
+      }),
+      ...extra,
+    };
+  };
+
+  it("filters frozen, excluded, untracked numeric, variant, and review-hold rows while recording variant/review-hold metadata", () => {
+    const core = mkRow("usde-ethena", 5e9, { symbol: "USDe", name: "Ethena USDe" });
+    const core2 = mkRow("bold-liquity", 2e8, { symbol: "BOLD", name: "Liquity BOLD" });
+    const frozenByFlag = mkRow("custom-frozen-coin", 3e8, { frozen: true });
+    const frozenByPolicy = mkRow(LISTING_POLICY.frozenIds[0], 4e8);
+    const excludedByPolicy = mkRow(LISTING_POLICY.excludedIds[0], 6e8);
+    const untrackedNumeric = mkRow("436", 1e8, { symbol: "EURR", name: "Revolut Euro" });
+    const variant1 = mkRow("susde-ethena", 2.5e9, { symbol: "sUSDe", name: "Ethena Staked USDe" });
+    const variant2 = mkRow("ybold-yearn", 5e7, { symbol: "yBOLD", name: "Yearn BOLD" });
+    const variant3 = mkRow("sbold-k3-capital", 8e7, { symbol: "sBOLD", name: "sBOLD by K3 Capital" });
+    const holdId = LISTING_POLICY.reviewHoldIds[0];
+    const holdRow = mkRow(holdId, 9e7, { symbol: "rcUSD", name: "R25 rcUSD" });
+
+    const p = makePayloads({
+      coins: [core, core2, frozenByFlag, frozenByPolicy, excludedByPolicy, untrackedNumeric, variant1, variant2, variant3, holdRow],
+    });
+    const m = buildHarbourModel(p, T0_MS, opts);
+
+    expect(m.boats.map((b) => b.id)).toEqual(["usde-ethena", "bold-liquity"]);
+    expect(m.payloadCount).toBe(2);
+    expect(m.coreCount).toBe(2);
+    expect(m.reserveCount).toBe(0);
+    expect(m.reserveSupplyTotal).toBe(0);
+    expect(m.excludedCount).toBe(8);
+    expect(m.supplyTotal).toBe(5.2e9);
+    expect(m.harbours.find((h) => h.chain === "Ethereum")!.supplyUsd).toBe(5.2e9);
+
+    expect(m.variantsByParent).toEqual({
+      "bold-liquity": [
+        { id: "sbold-k3-capital", symbol: "sBOLD", name: "sBOLD by K3 Capital", kind: "risk-absorption", supply: 8e7 },
+        { id: "ybold-yearn", symbol: "yBOLD", name: "Yearn BOLD", kind: "strategy-vault", supply: 5e7 },
+      ],
+      "usde-ethena": [
+        { id: "susde-ethena", symbol: "sUSDe", name: "Ethena Staked USDe", kind: "savings-passthrough", supply: 2.5e9 },
+      ],
+    });
+    expect(m.reviewHold).toEqual([
+      { id: holdId, symbol: "rcUSD", name: "R25 rcUSD", supply: 9e7 },
+    ]);
+  });
+
+  it("routes policy and dynamically-detected tokenized funds to Reserve Anchorage strictly outside core totals and market readings", () => {
+    const coreA = mkRow("usdc-circle", 10e9, { symbol: "USDC", name: "USD Coin", chainCirculating: { Ethereum: { current: 6e9 }, Base: { current: 4e9 } }, chains: ["Ethereum", "Base"] });
+    const coreB = mkRow("usdt-tether", 10e9, { symbol: "USDT", name: "Tether", chainCirculating: { Tron: { current: 10e9 } }, chains: ["Tron"] });
+    const buidl = mkRow("buidl-blackrock", 3e9, {
+      symbol: "BUIDL", name: "BlackRock BUIDL",
+      chainCirculating: { Ethereum: { current: 2e9 }, Solana: { current: 1e9 } }, chains: ["Ethereum", "Solana"],
+    }, true);
+    const dynamicFund = mkRow("future-tbill-fund", 1.5e9, {
+      symbol: "FTBL", name: "Future T-Bill Fund", pegType: "peggedEUR",
+      chainCirculating: { Solana: { current: 1.5e9 } }, chains: ["Solana"],
+    }, true);
+
+    const p = makePayloads({ coins: [coreA, coreB, buidl, dynamicFund] });
+    // Even if upstream peg/stress feeds carry extreme signals on funds, reserve vessels must ignore them
+    p.pegSummary!.data!.coins = [
+      { id: coreA.id, currentDeviationBps: 2, activeDepeg: false },
+      { id: coreB.id, currentDeviationBps: -3, activeDepeg: false },
+      { id: buidl.id, currentDeviationBps: -900, activeDepeg: true },
+      { id: dynamicFund.id, currentDeviationBps: -600, activeDepeg: true },
+    ];
+    p.stress!.data!.signals = {
+      [coreA.id]: { score: 8, band: "CALM" },
+      [coreB.id]: { score: 12, band: "CALM" },
+      [buidl.id]: { score: 95, band: "DANGER" },
+      [dynamicFund.id]: { score: 88, band: "WARNING" },
+    };
+    p.safetyGrades!.data!.grades = [
+      { id: coreA.id, grade: "A", ratingStatus: "rated", notRatedReason: null },
+      { id: buidl.id, grade: "NR", ratingStatus: "not-rated", notRatedReason: "tokenized-fund-not-graded" },
+      { id: dynamicFund.id, grade: "NR", ratingStatus: "not-rated", notRatedReason: "tokenized-fund-not-graded" },
+    ];
+
+    const m = buildHarbourModel(p, T0_MS, opts);
+    expect(m.payloadCount).toBe(4);
+    expect(m.boats).toHaveLength(4);
+    expect(m.coreCount).toBe(2);
+    expect(m.reserveCount).toBe(2);
+    expect(m.excludedCount).toBe(0);
+    expect(m.supplyTotal).toBe(20e9);
+    expect(m.reserveSupplyTotal).toBe(4.5e9);
+
+    const bBuidl = m.boats.find((b) => b.id === "buidl-blackrock")!;
+    const bDyn = m.boats.find((b) => b.id === "future-tbill-fund")!;
+    const bCore = m.boats.find((b) => b.id === "usdc-circle")!;
+    expect(isCoreBoat(bCore)).toBe(true);
+    expect(bCore.listingClass).toBe("core-stablecoin");
+    expect(bCore.fundMeta).toBeNull();
+    expect(bCore.ratingStatus).toBe("rated");
+
+    for (const f of [bBuidl, bDyn]) {
+      expect(isTokenizedFund(f)).toBe(true);
+      expect(isCoreBoat(f)).toBe(false);
+      expect(f.listingClass).toBe("tokenized-fund");
+      expect(f.state).toBe("reserve");
+      expect(f.home).toBe("reserve");
+      expect(f.circuit).toEqual([{ chain: null, where: "reserve", share: 1, rawShare: 1 }]);
+      expect(f.pegDeviationBps).toBeNull();
+      expect(f.activeDepeg).toBe(false);
+      expect(f.nullPeg).toBe(true);
+      expect(f.dews).toBeNull();
+      expect(f.dewsScore).toBeNull();
+      expect(f.stormSignal).toBeNull();
+      expect(f.maiden).toBe(false);
+      expect(f.grade).toBe("NR");
+      expect(f.ratingStatus).toBe("not-rated");
+      expect(f.gradeReason).toBe("tokenized-fund-not-graded");
+      expect(f.chainShares.length).toBeGreaterThan(0);
+    }
+    expect(bBuidl.fundMeta).toMatchObject({ navToken: false, pegCurrency: "USD", archetype: "tbill" });
+    expect(bBuidl.fundMeta!.backedIds.length).toBeGreaterThan(0);
+    expect(bDyn.fundMeta).toEqual({ navToken: true, pegCurrency: "EUR", archetype: null, backedIds: [] });
+
+    // Harbours strictly reflect core boats only (Solana only had funds -> excluded from harbours)
+    expect(m.harbours.map((h) => h.chain).sort()).toEqual(["Base", "Ethereum", "Tron"]);
+    expect(m.harbours.reduce((s, h) => s + h.supplyUsd, 0)).toBe(20e9);
+
+    // Market readings strictly reflect core boats only (no depeg, no storm cones/flags, calm weather)
+    expect(m.readings.shoals).toEqual([]);
+    expect(m.readings.seaState).toMatchObject({ offPegShare: 0, step: 0 });
+    expect(m.readings.weather).toMatchObject({ band: "CALM", level: 0, coverage: 1 });
+    expect(m.readings.stormCones).toEqual({ count: 0, shown: 0, extra: 0 });
+    expect(m.readings.stormFlags).toEqual([]);
+
+    // Plan key reacts to a core <-> reserve state transition
+    const withoutFundGrade = makePayloads({ coins: [coreA, coreB, buidl, dynamicFund] });
+    withoutFundGrade.safetyGrades!.data!.grades = [{ id: coreA.id, grade: "A" }];
+    expect(buildHarbourModel(withoutFundGrade, T0_MS, opts).planKey).not.toBe(m.planKey);
   });
 });
