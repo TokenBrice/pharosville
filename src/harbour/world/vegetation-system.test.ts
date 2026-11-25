@@ -367,12 +367,16 @@ describe("VegetationSystem runtime, StaticDepthRegistry opt-in & graceful fallba
     mats.dispose();
   });
 
-  it("partitions distant instances into 64 m spatial cells with tight frustum-culled bounds and swaps LOD1 on Low tier & distance", async () => {
-    const bin = encodeHbvg([
-      { x: 10, y: 2, z: 10, yawU16: 0, scaleXZ: 128, scaleY: 128, protoId: 0, seed: 40, luma: 128, swayGain: 128 },
-      { x: 22, y: 2, z: 18, yawU16: 16384, scaleXZ: 128, scaleY: 128, protoId: 0, seed: 80, luma: 128, swayGain: 128 },
-      { x: 220, y: 5, z: -210, yawU16: 32768, scaleXZ: 128, scaleY: 128, protoId: 0, seed: 120, luma: 128, swayGain: 128 },
-    ]);
+  it("partitions wide buckets into spatial quadrants with tight frustum-culled bounds and swaps LOD1 on Low tier & distance", async () => {
+    // 25 pine instances split cleanly into 2 distant quadrants: 20 near (10..22, 10..18) and 5 far (220..232, -210..-200)
+    const records: RawRecord[] = [];
+    for (let i = 0; i < 20; i++) {
+      records.push({ x: 10 + (i % 5) * 3, y: 2, z: 10 + Math.floor(i / 5) * 2, yawU16: i * 1000, scaleXZ: 128, scaleY: 128, protoId: 0, seed: (i * 11) & 255, luma: 128, swayGain: 128 });
+    }
+    for (let i = 0; i < 5; i++) {
+      records.push({ x: 220 + i * 3, y: 5, z: -210 + i * 2, yawU16: 32768 + i * 1000, scaleXZ: 128, scaleY: 128, protoId: 0, seed: 120 + i * 10, luma: 128, swayGain: 128 });
+    }
+    const bin = encodeHbvg(records);
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       if (url === VEGETATION_INSTANCES_URL) return new Response(bin, { status: 200, headers: { "content-type": "application/octet-stream" } });
       return new Response(null, { status: 404 });
@@ -390,11 +394,11 @@ describe("VegetationSystem runtime, StaticDepthRegistry opt-in & graceful fallba
     const uniforms = createWorldUniforms();
     const mats = new HarbourMaterials(uniforms);
     const built = buildVegetationPools(gltfScene, parsed, mats.vegSolid(), mats.vegDepth());
-    expect(VEG_CELL_SIZE).toBe(64);
+    expect(VEG_CELL_SIZE).toBe(220);
     expect(built.pools).toHaveLength(2);
     for (const pool of built.pools) {
       expect(pool.mesh.frustumCulled).toBe(true);
-      expect(pool.mesh.boundingSphere!.radius).toBeLessThan(30);
+      expect(pool.mesh.boundingSphere!.radius).toBeLessThan(35);
       expect(pool.lod1Geometry).not.toBeNull();
       // LOD0 and LOD1 share the exact same aVegMeta attribute
       expect(pool.lod1Geometry!.attributes.aVegMeta).toBe(pool.lod0Geometry.attributes.aVegMeta);
@@ -404,7 +408,7 @@ describe("VegetationSystem runtime, StaticDepthRegistry opt-in & graceful fallba
     }
     for (const g of built.baseGeometries) g.dispose();
 
-    // Runtime VegetationSystem: near cell uses LOD0, far cell uses LOD1 on High; all switch to LOD1 on Low
+    // Runtime VegetationSystem: near quadrant uses LOD0, far quadrant uses LOD1 on High; all switch to LOD1 on Low
     const listeners = new Set<(s: QualitySettings, dpr: number) => void>();
     let tier: QualityTier = "high";
     const quality: QualityService = {
@@ -426,7 +430,7 @@ describe("VegetationSystem runtime, StaticDepthRegistry opt-in & graceful fallba
     vi.spyOn(assets, "gltf").mockResolvedValue({ scene: gltfScene, scenes: [gltfScene] } as unknown as GLTF);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, 16 / 9, 1, 1000);
-    camera.position.set(15, 12, 35); // near cell (0,0) ~25 m away; far cell (3,-4) ~315 m away
+    camera.position.set(15, 12, 35); // near quadrant (0,1) ~25 m away; far quadrant (1,0) ~315 m away
     const services = new Map<string, unknown>([["materials", mats], ["quality", quality]]) as unknown as Services;
     const ctx = { scene, camera, assets, uniforms, services } as unknown as EngineContext;
 
@@ -434,36 +438,36 @@ describe("VegetationSystem runtime, StaticDepthRegistry opt-in & graceful fallba
     await sys.init(ctx);
     const group = scene.getObjectByName("harbour-vegetation") as THREE.Group;
     expect(group.children).toHaveLength(2);
-    const nearMesh = group.getObjectByName("veg_pine_broad_0_0") as THREE.InstancedMesh;
-    const farMesh = group.getObjectByName("veg_pine_broad_3_-4") as THREE.InstancedMesh;
-    expect(nearMesh.count).toBe(2);
-    expect(farMesh.count).toBe(1);
+    const nearMesh = group.getObjectByName("veg_pine_broad_0_1") as THREE.InstancedMesh;
+    const farMesh = group.getObjectByName("veg_pine_broad_1_0") as THREE.InstancedMesh;
+    expect(nearMesh.count).toBe(20);
+    expect(farMesh.count).toBe(5);
     expect(nearMesh.geometry.index!.count).toBe(6); // LOD0
-    expect(farMesh.geometry.index!.count).toBe(3);  // LOD1 (distance > 175 m)
+    expect(farMesh.geometry.index!.count).toBe(3);  // LOD1 (distance > 185 m)
 
-    // StaticDepthRegistry proxies match each cell's active LOD geometry and tight bounds
+    // StaticDepthRegistry proxies match each quadrant's active LOD geometry and tight bounds
     mats.staticDepth.sync(scene);
     expect(mats.staticDepth.scene.children).toHaveLength(2);
-    const nearProxy = mats.staticDepth.scene.getObjectByName("veg_pine_broad_0_0-predepth") as THREE.InstancedMesh;
-    const farProxy = mats.staticDepth.scene.getObjectByName("veg_pine_broad_3_-4-predepth") as THREE.InstancedMesh;
+    const nearProxy = mats.staticDepth.scene.getObjectByName("veg_pine_broad_0_1-predepth") as THREE.InstancedMesh;
+    const farProxy = mats.staticDepth.scene.getObjectByName("veg_pine_broad_1_0-predepth") as THREE.InstancedMesh;
     expect(nearProxy.geometry).toBe(nearMesh.geometry);
     expect(farProxy.geometry).toBe(farMesh.geometry);
     expect(nearProxy.boundingSphere).toBe(nearMesh.boundingSphere);
 
-    // Switching to Low tier moves ALL cells (including near cell) onto LOD1
+    // Switching to Low tier moves ALL quadrants (including near) onto LOD1
     quality.set("low");
     expect(nearMesh.geometry.index!.count).toBe(3);
     expect(farMesh.geometry.index!.count).toBe(3);
     mats.staticDepth.sync(scene);
     expect(nearProxy.geometry).toBe(nearMesh.geometry);
 
-    // Returning to High restores LOD0 for near cell while keeping far cell on LOD1
+    // Returning to High restores LOD0 for near quadrant while keeping far quadrant on LOD1
     quality.set("high");
     expect(nearMesh.geometry.index!.count).toBe(6);
     expect(farMesh.geometry.index!.count).toBe(3);
 
-    // Moving camera toward far cell during update() promotes it to LOD0 and demotes old near cell to LOD1
-    camera.position.set(220, 14, -190);
+    // Moving camera toward far quadrant during update() promotes it to LOD0 and demotes old near quadrant to LOD1
+    camera.position.set(225, 14, -190);
     sys.update({} as FrameState, ctx);
     expect(farMesh.geometry.index!.count).toBe(6);
     expect(nearMesh.geometry.index!.count).toBe(3);

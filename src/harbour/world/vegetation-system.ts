@@ -8,13 +8,19 @@ import { getHarbourMaterials } from "./materials";
 
 export { VEGETATION_INSTANCES_URL, VEGETATION_URL };
 
-/** XZ spatial partitioning grid cell size (m) for tight per-cell frustum culling & distance LOD. */
-export const VEG_CELL_SIZE = 64;
+/** Default minimum instance count before splitting a wide prototype bucket into spatial quadrants. */
+export const VEG_SPLIT_MIN_COUNT = 24;
 
-/** Hysteresis surface-distance thresholds (m) for switching spatial cells between LOD0 and LOD1 on High / Medium tiers. */
+/** Default minimum XZ span (m) before splitting a prototype bucket along an axis. */
+export const VEG_SPLIT_MIN_SPAN = 110;
+
+/** Retained alias for spatial quadrant partitioning tests (average quadrant width on the ~450 m island). */
+export const VEG_CELL_SIZE = 220;
+
+/** Hysteresis surface-distance thresholds (m) for switching spatial quadrants between LOD0 and LOD1 on High / Medium tiers. */
 export const VEG_LOD_DIST: Readonly<Record<Exclude<QualityTier, "low">, { readonly enter: number; readonly exit: number }>> = {
-  high: { enter: 175, exit: 150 },
-  medium: { enter: 125, exit: 105 },
+  high: { enter: 185, exit: 155 },
+  medium: { enter: 135, exit: 110 },
 };
 
 /** Fixed 18 prototype names matching `protoId` 0..17 in `HBVG` v1 and GLB node names in `vegetation.glb`. */
@@ -258,18 +264,23 @@ function createCellGeometry(
 }
 
 /**
- * Partition each prototype's instances into `cellSize × cellSize` m XZ spatial cells (default 64 m)
- * and build tightly bounded, frustum-culled `THREE.InstancedMesh` pools with paired LOD0 + LOD1
- * geometries sharing vertex buffers and per-instance `aVegMeta` (never setting `instanceColor`).
+ * Partition wide, well-populated prototype buckets into up to 2×2 spatial XZ quadrants (around each
+ * bucket's midpoint when `count >= minSplitCount` and XZ span exceeds `minSplitSpan`, or into explicit
+ * `cellSize` cells when requested) and build tightly bounded, frustum-culled `THREE.InstancedMesh`
+ * pools with paired LOD0 + LOD1 geometries sharing vertex buffers and per-instance `aVegMeta`
+ * (never setting `instanceColor`). Keeps draw calls (~45 pools across 845 trees) lean while enabling
+ * quadrant frustum culling and distance LOD0 ↔ LOD1 switching.
  */
 export function buildVegetationPools(
   gltfRoot: THREE.Object3D,
   parsed: ParsedVegetationInstances,
   material: THREE.Material,
   depthMaterial: THREE.Material,
-  opts: { cellSize?: number } = {},
+  opts: { cellSize?: number; minSplitCount?: number; minSplitSpan?: number } = {},
 ): BuiltVegetationPools {
-  const cellSize = opts.cellSize ?? VEG_CELL_SIZE;
+  const explicitCellSize = opts.cellSize;
+  const minSplitCount = opts.minSplitCount ?? VEG_SPLIT_MIN_COUNT;
+  const minSplitSpan = opts.minSplitSpan ?? VEG_SPLIT_MIN_SPAN;
   const prototypes = indexPrototypeMeshes(gltfRoot);
   const pos = new THREE.Vector3();
   const quat = new THREE.Quaternion();
@@ -300,18 +311,45 @@ export function buildVegetationPools(
     const localSphere = new THREE.Sphere();
     localBox.getBoundingSphere(localSphere);
 
-    // Partition instances into spatial XZ grid cells
+    // Partition wide buckets into at most 2x2 quadrants (or explicit grid cells when opts.cellSize is passed)
     const cellMap = new Map<string, { cellX: number; cellZ: number; items: VegetationInstance[] }>();
-    for (const rec of bucket) {
-      const cellX = Math.floor(rec.x / cellSize);
-      const cellZ = Math.floor(rec.z / cellSize);
-      const key = `${cellX},${cellZ}`;
-      let cell = cellMap.get(key);
-      if (!cell) {
-        cell = { cellX, cellZ, items: [] };
-        cellMap.set(key, cell);
+    if (explicitCellSize !== undefined) {
+      for (const rec of bucket) {
+        const cellX = Math.floor(rec.x / explicitCellSize);
+        const cellZ = Math.floor(rec.z / explicitCellSize);
+        const key = `${cellX},${cellZ}`;
+        let cell = cellMap.get(key);
+        if (!cell) {
+          cell = { cellX, cellZ, items: [] };
+          cellMap.set(key, cell);
+        }
+        cell.items.push(rec);
       }
-      cell.items.push(rec);
+    } else {
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const rec of bucket) {
+        if (rec.x < minX) minX = rec.x;
+        if (rec.x > maxX) maxX = rec.x;
+        if (rec.z < minZ) minZ = rec.z;
+        if (rec.z > maxZ) maxZ = rec.z;
+      }
+      const spanX = maxX - minX;
+      const spanZ = maxZ - minZ;
+      const splitX = bucket.length >= minSplitCount && spanX > minSplitSpan;
+      const splitZ = bucket.length >= minSplitCount && spanZ > minSplitSpan;
+      const midX = (minX + maxX) * 0.5;
+      const midZ = (minZ + maxZ) * 0.5;
+      for (const rec of bucket) {
+        const cellX = splitX ? (rec.x >= midX ? 1 : 0) : 0;
+        const cellZ = splitZ ? (rec.z >= midZ ? 1 : 0) : 0;
+        const key = `${cellX},${cellZ}`;
+        let cell = cellMap.get(key);
+        if (!cell) {
+          cell = { cellX, cellZ, items: [] };
+          cellMap.set(key, cell);
+        }
+        cell.items.push(rec);
+      }
     }
 
     const singleCell = cellMap.size === 1;
