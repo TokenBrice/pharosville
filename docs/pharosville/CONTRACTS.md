@@ -1,6 +1,6 @@
 # PharosVille Runtime and Analytical Contracts
 
-Last updated: 2026-10-19
+Last updated: 2026-11-25
 
 This file owns runtime, truth, access and resource limits for The Harbour.
 World meaning and art direction are the locked decisions D1-D14 in
@@ -92,19 +92,28 @@ contract only with explicit intent and matching code, tests and route docs.
 Only PharosVille consumes these allowlisted routes. The Pages Function projects
 successful JSON to the complete world **and** on-demand panel contract below;
 the upstream analytical schemas are not the standalone response contract.
-`shared/types/pharosville.ts` owns the standalone schemas (contract version 3).
+`shared/types/pharosville.ts` owns the standalone schemas (contract version 4).
 Every `_meta` object is retained intact, including unavailable dependencies.
 Nulls and missing readings are not filled, and no live stablecoin or chain is
-filtered out. The existing active-ID safety-grade filter is unchanged.
+filtered out at the proxy. Safety grades and on-demand panel allowlists filter
+against synced `shared/data/stablecoins/runtime-active-ids.json` (Listing
+Policy 2.0 active IDs: core stablecoins, tokenized funds, tracked variants and
+review-hold entries). In the world model (`src/harbour/model/`), core aggregates
+(supply total, chain harbours, sea state, weather, storm flags, Shoals, Registry
+grade tally, harbour reports) include `core-stablecoin` boats only; tokenized
+funds anchor separately in Reserve Anchorage off the Bonded Warehouse with
+separate reserve AUM, tracked variants attach to their parent core stablecoins,
+review-hold items are disclosed without sailing, and frozen/excluded entries are
+omitted from live water.
 
 | Endpoint | Retained fields |
 |---|---|
-| `/api/stablecoins` | Every `peggedAssets` row: `id`, `name`, `symbol`, `pegType`, `chains`, `circulating`, `circulatingPrevDay/Week/Month`, each `chainCirculating.*.current` |
+| `/api/stablecoins` | Every `peggedAssets` row: `id`, `name`, `symbol`, `pegType`, `chains`, `circulating`, `circulatingPrevDay/Week/Month`, each `chainCirculating.*.current`, optional `frozen` |
 | `/api/chains` | Every row's `id`, `name`, `totalUsd`, `healthScore`, `change24hPct`, `change7dPct`, `change30dPct`; top-level `globalChange24hPct`, `globalChange7dPct`, `globalChange30dPct` |
 | `/api/stability-index?detail=true` | `current.score`, `band`, `avg24h`, `computedAt`, `methodologyVersion`, `inputDegradation.dewsUnavailable/depegEventsUnavailable`, root `methodology.version`; components `severity`, `breadth`, `stressBreadth`, `trend`; `history` retains the panel's last 30 finite-score rows sorted by ascending date, each `date`, `score`, and `methodologyVersion` |
 | `/api/peg-summary` | Every coin's `id`, `currentDeviationBps`, `activeDepeg`, `pegScore`, and `pegReference.valueUsd/source/contributorCount`; coin `methodologyVersion`; root `methodology.asOf/version` |
 | `/api/stress-signals` | Every signal ID and its `score`, `band`; top-level `updatedAt`, `methodology.version` |
-| `/api/safety-grades` | Existing runtime-active rows, each `id`, `grade`; top-level `updatedAt`, `methodologyVersion` |
+| `/api/safety-grades` | Synced runtime-active rows plus any upstream `not-rated` rows carrying a `tokenized-fund*` reason (so newly listed funds route to Reserve Anchorage before the next catalog sync), each `id`, `grade`, optional `ratingStatus`, optional `notRatedReason`; top-level `updatedAt`, `methodologyVersion` |
 | `/api/mint-burn-flows` | Every hourly row's `hourTs`, `netFlowUsd`, `mintVolumeUsd`, `burnVolumeUsd`, `valuation`; `scope.chainIds`; every coin's `stablecoinId`, `mintVolume24hUsd`, `burnVolume24hUsd`, `netFlow24hUsd`, `netFlow7dUsd`, `coverage.status/has24hWindow/historyStartAt/isPartial`, `valuation.window24h.completeness/mintCompleteness/burnCompleteness`, `valuation.netFlow7d` |
 
 Publication timestamps (`_meta`, `computedAt`, `methodology.asOf`, `updatedAt`) are kept so
@@ -124,7 +133,7 @@ lists and `*`; a match returns bodyless 304 with the current freshness,
 cache and security headers. The browser reuses its cached body; the feed does
 not send manual validators or treat an exposed 304 as a JSON payload.
 The edge stores full 200 responses even when the requesting browser gets 304.
-Projection epoch `pv3` namespaces normal and last-good internal keys and ETags.
+Projection epoch `pv4` namespaces normal and last-good internal keys and ETags.
 Old-epoch representations are ignored, never re-projected as a new contract.
 The feed uses browser revalidation (`cache: "no-cache"`). A first post-cutover outage
 may have no compatible last-good observation and is reported unavailable.
@@ -156,7 +165,7 @@ DEX rows outside the register are omitted; the fixture-fed budget test caps the 
 at 30 KB gzip. No per-coin DEX endpoint is invented.
 
 The panel proxy shares the world proxy's 8-second upstream deadline, security headers,
-projected-byte ETags, `pv3` cache namespace and 24-hour last-good retention. Upstream 5xx or
+projected-byte ETags, `pv4` cache namespace and 24-hour last-good retention. Upstream 5xx or
 transport failure can serve last-good with `Warning: 110` and `no-store`; 4xx remains 4xx.
 Normal browser/edge and in-memory visit caches never exceed producer cadence; stricter
 upstream HTTP policies survive. Warning-110 bodies are not stored in the visit cache.

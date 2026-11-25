@@ -131,6 +131,7 @@ describe("chart lettering: collision solver", () => {
       { id: "far-ports", anchor: [3.54, -420.73], angle: 0.7854, caps: [9, 18] },
       { id: "wreck-cove", anchor: [-216.3751899236537, 188.09474254529215], angle: 0.7854, caps: [14] },
       { id: "the-roads", anchor: [-133.930925075738, -269.6909941652011], angle: 0.7854, caps: [9.5, 19] },
+      { id: "reserve-anchorage", anchor: [278.2248100763463, -263.34525745470785], angle: 0.7854, caps: [10.64] },
       { id: "outer-passage", anchor: [-283.4089288596718, -339.9788488613461], angle: 0.7854, caps: [11, 22] },
       { id: "western-reach", anchor: [-487.9, 176.78], angle: 0.7854, caps: [8.36, 16.72] },
       { id: "southern-sea", anchor: [269.2689288596718, 269.2688488613461], angle: 0.7854, caps: [11, 22] },
@@ -144,5 +145,20 @@ describe("chart lettering: collision solver", () => {
       { anchor: [-349.4988816784387, -43.651957838681305], score: 0.9301338781821323, fit: 0.9861791503762166 },
       { anchor: [-334.4603798473074, -58.690514909415704], score: 0.9164471356804664, fit: 0.9714471356804665 },
     ]);
+  });
+
+  it("sets Reserve Anchorage with reserveAnchorage typography and keeps it inside its polygon", () => {
+    const z = zones.find((x) => x.id === "reserve-anchorage")!;
+    expect(z).toBeDefined();
+    expect(z.kind).toBe("reserveAnchorage");
+    const spec = labelSpecs([z])[0];
+    expect(spec.lines).toEqual([{ text: "RESERVE ANCHORAGE", face: "italic", cap: 14, track: 0.3 }]);
+    expect(spec.ink).toBe(0.92);
+    const fit = fitLabel(spec, z, F);
+    const xs = z.polygon.map((p) => p[0]), zs = z.polygon.map((p) => p[1]);
+    expect(fit.anchor[0]).toBeGreaterThanOrEqual(Math.min(...xs));
+    expect(fit.anchor[0]).toBeLessThanOrEqual(Math.max(...xs));
+    expect(fit.anchor[1]).toBeGreaterThanOrEqual(Math.min(...zs));
+    expect(fit.anchor[1]).toBeLessThanOrEqual(Math.max(...zs));
   });
 });

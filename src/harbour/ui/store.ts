@@ -11,7 +11,7 @@ import { primaryPointer, TOUCH_COMMIT_PX } from "../engine/input";
 import { glideSeconds, glideTravel, type CameraPreset } from "../engine/camera-rig";
 import type { Engine } from "../engine/engine";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import type { Boat, HarbourModel } from "../model/types";
+import { isCoreBoat, isTokenizedFund, type Boat, type HarbourModel } from "../model/types";
 import { PANEL_LANDMARKS, whereabouts, type Whereabouts } from "./facts";
 import { UIPicking } from "./picking";
 import { civicTop, inPoly, plotFor, seaZones } from "./places";
@@ -25,7 +25,7 @@ import { footprintBounds, frameSubject, usableSpace, type ScreenRect, type Subje
 import { LEDGER_PANES_MIN_PX, newLedgerContext, type LedgerContext, type LedgerTab, type LedgerView } from "./ledger-state";
 import { deadSummaries } from "../model/obituary";
 import { yardCoins } from "./yard";
-import { RouteLine } from "../fleet/route-line";
+import { RouteLine, type Itinerary } from "../fleet/route-line";
 import { landmarkHover } from "../world/landmark-hover";
 import { preloadDetails } from "./details";
 import { PH_APPROACHING, PH_CASTING_OFF, PH_SAILING } from "../sim/sim";
@@ -100,6 +100,43 @@ export function springStep(p: { x: number; z: number; vx: number; vz: number }, 
   p.vx = (p.vx - omega * bx * dt) * k; p.vz = (p.vz - omega * bz * dt) * k;
 }
 
+const BACKING_ARC_STEPS = 15;
+
+/** Gentle curved backing arcs on the water from a selected tokenized fund to each live backed core stablecoin. */
+export function backingItinerary(
+  fund: Boat,
+  pose: { ids: readonly string[]; position: ArrayLike<number> },
+  allowId?: (id: string) => boolean,
+): Itinerary | null {
+  const backedIds = fund.fundMeta?.backedIds;
+  if (!backedIds?.length) return null;
+  const fi = pose.ids.indexOf(fund.id);
+  if (fi < 0) return null;
+  const fx = pose.position[fi * 3], fz = pose.position[fi * 3 + 2];
+  const legs: Itinerary["legs"] = [];
+  const ports: Itinerary["ports"] = [];
+  for (const id of backedIds) {
+    if (allowId && !allowId(id)) continue;
+    const bi = pose.ids.indexOf(id);
+    if (bi < 0) continue;
+    const bx = pose.position[bi * 3], bz = pose.position[bi * 3 + 2];
+    const dx = bx - fx, dz = bz - fz, dist = Math.hypot(dx, dz);
+    if (dist < 0.5) continue;
+    const bow = Math.min(24, dist * 0.12) * (legs.length % 2 === 0 ? 1 : -1);
+    const cx = (fx + bx) * 0.5 - (dz / dist) * bow;
+    const cz = (fz + bz) * 0.5 + (dx / dist) * bow;
+    const pts = new Float32Array((BACKING_ARC_STEPS + 1) * 2);
+    for (let k = 0; k <= BACKING_ARC_STEPS; k++) {
+      const t = k / BACKING_ARC_STEPS, u = 1 - t;
+      pts[k * 2] = u * u * fx + 2 * u * t * cx + t * t * bx;
+      pts[k * 2 + 1] = u * u * fz + 2 * u * t * cz + t * t * bz;
+    }
+    legs.push({ pts, current: true });
+    ports.push([bx, bz]);
+  }
+  return legs.length ? { legs, ports, backing: true } : null;
+}
+
 export class HarbourUIStore {
   private state: UIState;
   private readonly listeners = new Set<() => void>();
@@ -122,6 +159,7 @@ export class HarbourUIStore {
   private seen: { x: number; y: number } | null = null;
   private readonly cleanups: Array<() => void> = [];
   private readonly route: RouteLine;
+  private backingCache: { id: string; coords: number[]; it: Itinerary | null } | null = null;
   /** The framing the visitor landed on: Home / double-click on open water flies back to it. */
   private readonly home: CameraPreset;
   private readonly devStale = import.meta.env.DEV ? new URLSearchParams(location.search).get("stale") : null;
@@ -166,7 +204,13 @@ export class HarbourUIStore {
     this.cleanups.push(() => { removeEventListener("popstate", pop); clearTimeout(this.linkNoticeTimer); });
     this.cleanups.push(this.motion.subscribe((reduced) => { this.set({ reducedMotion: reduced, still: this.motion.still }); if (reduced) { this.setFollow(null); this.ctx.rig.stop(); this.keyVel.x = this.keyVel.y = 0; } }));
     this.attachPointer(ctx.renderer.domElement);
-    this.route = new RouteLine(ctx, (id) => getSim(this.ctx)?.itineraryOf?.(id) ?? null);
+    this.route = new RouteLine(ctx, (id) => {
+      const sim = getSim(this.ctx);
+      if (!sim) return null;
+      const b = this.boat(id);
+      if (b && isTokenizedFund(b)) return this.backingFor(b, sim.pose);
+      return sim.itineraryOf?.(id) ?? null;
+    });
     this.cleanups.push(() => this.route.dispose());
     const resize = () => { this.measurements.invalidate(ctx.renderer.domElement); };
     addEventListener("resize", resize);
@@ -422,6 +466,7 @@ export class HarbourUIStore {
     if (this.state.watch) this.stopWatch();
     if (!sameHit(hit, this.state.selected) || !hit) this.setFollow(null);
     this.picking.setSelected(hit);
+    if (hit?.kind !== "boat" || hit.id !== this.backingCache?.id) this.backingCache = null;
     this.route.show(hit?.kind === "boat" ? hit.id : null);
     this.set({ selected: hit, searchOpen: false, shipChoices: [], linkNotice: null, ...(hit && opts.fly !== false ? { ledgerOpen: false } : {}) });
     this.selectionEpoch = hit && opts.fly !== false ? this.ctx.rig.inputEpoch : null;
@@ -507,8 +552,9 @@ export class HarbourUIStore {
       if (bounds && pier) { bounds.radius += Math.max(...pier.segments.map((s) => s.width)) / 2; return bounds; }
     }
     if (hit.kind === "landmark") {
+      const reserveZone = (layout?.zones as Record<string, { polygon?: [number, number][] } | undefined> | undefined)?.reserveAnchorage?.polygon;
       const polygon = seaZones(layout).find((z) => z.id === hit.id)?.polygon
-        ?? (hit.id === "shoals" ? layout?.zones.shoals?.polygon : hit.id === "wreck-cove" ? layout?.zones.wreckCove?.polygon : hit.id === "far-ports" ? layout?.zones.farPorts?.polygon : undefined);
+        ?? (hit.id === "shoals" ? layout?.zones.shoals?.polygon : hit.id === "wreck-cove" ? layout?.zones.wreckCove?.polygon : hit.id === "far-ports" ? layout?.zones.farPorts?.polygon : hit.id === "reserve-anchorage" ? reserveZone : undefined);
       const bounds = polygon && footprintBounds(polygon, 16);
       if (bounds) return bounds;
     }
@@ -523,7 +569,9 @@ export class HarbourUIStore {
     const { rig, camera, renderer } = this.ctx;
     const width = renderer.domElement.clientWidth || innerWidth, height = renderer.domElement.clientHeight || innerHeight;
     const close = hit.kind === "boat" ? 210 : hit.kind === "yard" ? 170 : hit.kind === "wreck" ? 160 : hit.kind === "harbour" ? 300
-      : hit.id === "far-ports" || hit.id === "wreck-cove" || hit.id === "the-roads" ? 420 : hit.id === "slipway" ? 340 : hit.id === "pharos" ? 440 : 300;
+      : hit.id === "far-ports" || hit.id === "wreck-cove" || hit.id === "the-roads" ? 420
+      : hit.id === "reserve-anchorage" ? 320 : hit.id === "warehouse" ? 280
+      : hit.id === "slipway" ? 340 : hit.id === "pharos" ? 440 : 300;
     return frameSubject(subject, this.space ?? usableSpace(width, height, []), width, height, {
       target: subject.center, distance: distance ?? Math.min(Math.max(rig.distance, close * 0.75), close), fovDeg: camera.fov,
       pitchDeg: THREE.MathUtils.radToDeg(rig.pitch), yawDeg: THREE.MathUtils.radToDeg(rig.yaw),
@@ -581,13 +629,22 @@ export class HarbourUIStore {
     }
     this.pendingSubject = null;
     readingSession = null;
-    const valid = !hit ? false : hit.kind === "boat" ? model.boats.some((b) => b.id === hit.id)
-      : hit.kind === "wreck" ? deadSummaries().has(hit.id) || model.readings.wrecks.some((w) => w.id === hit.id)
-        : hit.kind === "yard" ? yardCoins(this.ctx).some((c) => c.id === hit.id)
-          : hit.kind === "harbour" ? Object.hasOwn(CHAIN_META, hit.id) && model.harbours.some((h) => resolveChainId(h.chain) === hit.id) : PANEL_LANDMARKS.has(hit.id);
+    let target = hit;
+    if (hit?.kind === "boat" && !model.boats.some((b) => b.id === hit.id) && model.variantsByParent) {
+      for (const [parentId, variants] of Object.entries(model.variantsByParent)) {
+        if (variants.some((v) => v.id === hit.id) && model.boats.some((b) => b.id === parentId)) {
+          target = { kind: "boat", id: parentId };
+          break;
+        }
+      }
+    }
+    const valid = !target ? false : target.kind === "boat" ? model.boats.some((b) => b.id === target.id)
+      : target.kind === "wreck" ? deadSummaries().has(target.id) || model.readings.wrecks.some((w) => w.id === target.id)
+        : target.kind === "yard" ? yardCoins(this.ctx).some((c) => c.id === target.id)
+          : target.kind === "harbour" ? Object.hasOwn(CHAIN_META, target.id) && model.harbours.some((h) => resolveChainId(h.chain) === target.id) : PANEL_LANDMARKS.has(target.id);
     if (saved) this.set({ ledgerOpen: saved.ledgerOpen, ledgerOrigin: valid && saved.origin });
-    const resolved = hit?.kind === "harbour" && valid ? { ...hit, id: model.harbours.find((h) => resolveChainId(h.chain) === hit.id)!.chain } : hit;
-    if (valid) this.select(resolved, { fly: saved?.fly ?? true, history: "none" });
+    const resolved = target?.kind === "harbour" && valid ? { ...target, id: model.harbours.find((h) => resolveChainId(h.chain) === target.id)!.chain } : target;
+    if (valid) this.select(resolved, { fly: saved?.fly ?? true, history: target !== hit && this.normalizeSubject ? "replace" : "none" });
     else if (hit || intent?.obsolete || intent?.invalid) {
       this.select(null, { history: "none" });
       if (this.normalizeSubject) history.replaceState(null, "", "/");
@@ -621,6 +678,29 @@ export class HarbourUIStore {
     if (settled) { rig.glideTo(p, { ms: 1600, lift: -0.04 }); return; }
     const travel = glideTravel(rig.target.x, rig.target.z, rig.distance, p.target[0], p.target[2], p.distance);
     rig.glideTo(p, { ms: Math.max(1600, glideSeconds(travel) * 1000) });
+  }
+
+  /** Cached backing-arc itinerary: skips geometry rebuilds when endpoints have moved <= 0.5 m. */
+  private backingFor(fund: Boat, pose: { ids: readonly string[]; position: ArrayLike<number> }): Itinerary | null {
+    const backedIds = fund.fundMeta?.backedIds;
+    if (!backedIds?.length) return null;
+    const fi = pose.ids.indexOf(fund.id);
+    if (fi < 0) return null;
+    const liveCore = (id: string) => { const x = this.boat(id); return !!x && isCoreBoat(x) && x.state !== "wrecked"; };
+    const coords = [pose.position[fi * 3], pose.position[fi * 3 + 2]];
+    for (const id of backedIds) {
+      if (!liveCore(id)) continue;
+      const bi = pose.ids.indexOf(id);
+      if (bi >= 0) coords.push(pose.position[bi * 3], pose.position[bi * 3 + 2]);
+    }
+    const prev = this.backingCache;
+    if (prev && prev.id === fund.id && prev.coords.length === coords.length
+      && prev.coords.every((c, k) => Math.abs(c - coords[k]) <= 0.5)) {
+      return prev.it;
+    }
+    const it = backingItinerary(fund, pose, liveCore);
+    this.backingCache = { id: fund.id, coords, it };
+    return it;
   }
 
   /** The selected boat's rounds on the water (fleet/route-line.ts). */

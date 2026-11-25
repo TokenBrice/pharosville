@@ -4,7 +4,7 @@ import { panelUpstreamFixtures, PANEL_COIN_ID } from "../../src/harbour/__fixtur
 import { PHAROSVILLE_PANEL_ENDPOINT_KEYS, panelEndpointPath, allowedPanelEndpoint } from "../../shared/lib/pharosville-panel-endpoints";
 import { PHAROSVILLE_PANEL_SCHEMAS } from "../../shared/types/pharosville-panels";
 import { PHAROSVILLE_SMOKE_PANEL_ENDPOINTS, PHAROSVILLE_PANEL_BLOCKED_404_PATHS } from "../../shared/lib/pharosville-smoke-matrix";
-import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-registry";
+import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-active-ids";
 import { panelEndpointProjector } from "./_project-panels";
 
 describe("on-demand panel contract", () => {

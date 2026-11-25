@@ -9,7 +9,7 @@ export { PHAROSVILLE_API_ENDPOINT_KEYS } from "./pharosville-endpoint-keys";
 export type { PharosVilleApiEndpointKey } from "./pharosville-endpoint-keys";
 
 /** Standalone route contract, deliberately separate from full upstream schemas. */
-export const PHAROSVILLE_API_CONTRACT_VERSION = 3;
+export const PHAROSVILLE_API_CONTRACT_VERSION = 4;
 const buckets = z.record(z.string(), z.number().nullable());
 const meta = { _meta: z.unknown().optional() };
 const version = z.string().nullable().optional();
@@ -25,6 +25,7 @@ export const PHAROSVILLE_API_PAYLOAD_SCHEMAS = {
       chains: z.array(z.string()), circulating: buckets,
       circulatingPrevDay: buckets.nullish(), circulatingPrevWeek: buckets.nullish(), circulatingPrevMonth: buckets.nullish(),
       chainCirculating: z.record(z.string(), z.object({ current: nullableNumber }).nullable()),
+      frozen: z.boolean().optional(),
     })),
   }),
   chains: z.object({
@@ -49,7 +50,7 @@ export const PHAROSVILLE_API_PAYLOAD_SCHEMAS = {
     })),
   }),
   stress: z.object({ ...meta, methodology, updatedAt: z.number().nonnegative().optional(), signals: z.record(z.string(), StressSignalEntrySchema.pick({ score: true, band: true }).nullable()) }),
-  safetyGrades: z.object({ ...meta, methodologyVersion: version, updatedAt: z.number().nonnegative().optional(), grades: z.array(SafetyGradeEntrySchema.pick({ id: true, grade: true })) }),
+  safetyGrades: z.object({ ...meta, methodologyVersion: version, updatedAt: z.number().nonnegative().optional(), grades: z.array(SafetyGradeEntrySchema.pick({ id: true, grade: true, ratingStatus: true, notRatedReason: true })) }),
   mintBurn: z.object({
     ...meta,
     hourly: z.array(z.object({ hourTs: z.number().int().nonnegative(), netFlowUsd: nullableNumber, mintVolumeUsd: z.number().nonnegative(), burnVolumeUsd: z.number().finite().nonnegative(), valuation: completeness.optional() })),

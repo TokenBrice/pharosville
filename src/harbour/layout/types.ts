@@ -100,6 +100,7 @@ export interface LayoutZones {
   wreckCove?: { polygon: Vec2[]; slots: HeadedSlot[] };
   slipway?: { polygon: Vec2[]; slots: Vec3[]; launchPath: Vec2[] };
   farPorts?: { polygon: Vec2[]; rows: Array<{ cls: HullClass; line: Vec2[]; slots: Vec3[] }> };
+  reserveAnchorage?: { polygon: Vec2[]; slots: Vec3[] };
   skiffBasins?: Array<{ pier: string; polygon: Vec2[]; slots: string[] }>;
   [zone: string]: unknown;
 }

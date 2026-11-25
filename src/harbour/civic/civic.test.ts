@@ -108,6 +108,7 @@ describe("the Shipyard", () => {
     expect(stageFor("auditing")).toBe("planked");
     expect(stageFor("beta")).toBe("painted");
     expect(stageFor("launching-soon")).toBe("rigged");
+    expect(stageFor("launched")).toBe("rigged");
   });
 
   it("rigged hulls take the slips, the rest the berths, furthest along first; every slot used once", () => {
@@ -145,9 +146,18 @@ describe("the Shipyard", () => {
 });
 
 describe("registry and harbourmaster readings", () => {
-  it("grade tally counts live boats by letter, unrated apart, wrecks out", () => {
-    const t = gradeTally([{ grade: "A+", state: "moored" }, { grade: "A-", state: "docked" }, { grade: "F", state: "moored" },
-      { grade: "NR", state: "moored" }, { grade: null, state: "moored" }, { grade: "B", state: "wrecked" }]);
+  it("grade tally counts live core boats by letter, unrated apart, wrecks and reserve funds out", () => {
+    const t = gradeTally([
+      { grade: "A+", state: "moored" },
+      { grade: "A-", state: "docked" },
+      { grade: "F", state: "moored" },
+      { grade: "NR", state: "moored" },
+      { grade: null, state: "moored" },
+      { grade: "B", state: "wrecked" },
+      { grade: "NR", state: "reserve" },
+      { grade: null, state: "reserve" },
+      { grade: "A", state: "reserve" },
+    ]);
     expect(Object.fromEntries(t)).toEqual({ A: 2, F: 1, "—": 2 });
   });
 

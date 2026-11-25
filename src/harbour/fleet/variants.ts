@@ -2,6 +2,7 @@
  * Pure fleet logic (no three.js): which kit hull a boat sails, and the rig pose from heading + wind.
  */
 import type { HullClass } from "../layout/types";
+import { isTokenizedFund, type Boat } from "../model/types";
 
 export type Family = "usd" | "eur" | "gold" | "fiat" | "other";
 
@@ -94,7 +95,13 @@ export function pegLampsLive(truth: Partial<Record<"stablecoins" | "pegSummary",
   return truth?.stablecoins?.state === "current" && truth?.pegSummary?.state === "current";
 }
 
-export function sternLampLit(boat: { id: string; nullPeg: boolean }, at: "under-way" | "anchored" | "moored"): boolean {
-  if (boat.nullPeg) return false;
+export function sternLampLit(
+  boat: { id: string; nullPeg: boolean } & Partial<Pick<Boat, "listingClass" | "state">>,
+  at: "under-way" | "anchored" | "moored",
+): boolean {
+  const probe: Pick<Boat, "listingClass" | "state"> = boat.listingClass !== undefined
+    ? { listingClass: boat.listingClass, state: boat.state ?? "moored" }
+    : { state: boat.state ?? "moored" };
+  if (boat.nullPeg || isTokenizedFund(probe)) return false;
   return at !== "moored" || hash01(boat.id + "#lamp") < MOORED_LIT;
 }

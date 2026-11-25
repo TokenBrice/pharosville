@@ -8,6 +8,8 @@ export const SafetyGradeEntrySchema = z.object({
   id: z.string(),
   score: z.number().nullable(),
   grade: ReportCardGradeSchema,
+  ratingStatus: z.string().optional(),
+  notRatedReason: z.string().nullable().optional(),
 });
 export type SafetyGradeEntry = z.infer<typeof SafetyGradeEntrySchema>;
 

@@ -1,6 +1,6 @@
 # PharosVille Operations
 
-Last updated: 2026-11-09
+Last updated: 2026-11-25
 
 This runbook covers the standalone Cloudflare Pages app at
 `https://pharosville.pharos.watch/`.
@@ -206,7 +206,7 @@ The key stays server-side; browser requests remain same-origin.
 | DEX liquidity / `dexLiquidity` | `/api/dex-liquidity` | 1,800 s | shared runtime-active map; source age and each coin observation, 3,600 s budget |
 
 The registry and cron map are authoritative for producer caps. Normal cache keys are
-`https://pharosville.pharos.watch/api/__projection/pv3` plus the exact request path/query.
+`https://pharosville.pharos.watch/api/__projection/pv4` plus the exact request path/query.
 Last-good keys prepend `/api/__last-good` to that epoch path; both internal prefixes return
 404/no-store to public requests. Projected-byte ETags support 304; upstream validators are not
 reused. Cache TTL never extends the source's freshness. Last-good copies survive at most 24 hours.
@@ -586,9 +586,11 @@ authorization; do not derive routes from IDs here.
 ## Sync pharos-watch data
 
 The pre-launch book (`src/harbour/data/prelaunch.json`), the logo book
-(`public/logos/` + `data/logos.json`), brand colours (`data/brand-colors.json`)
-and the cemetery behind Wreck Cove (`shared/data/dead-stablecoins.json`) are
-vendored from `TokenBrice/pharos-watch`. One command refreshes all four:
+(`public/logos/` + `data/logos.json`), brand colours (`data/brand-colors.json`),
+the cemetery behind Wreck Cove (`shared/data/dead-stablecoins.json`), and the
+Listing Policy 2.0 runtime catalogs (`shared/data/stablecoins/listing-policy.json`,
+`runtime-active-ids.json`, `runtime-slim.json`, `social-cards.json`) are vendored from
+`TokenBrice/pharos-watch`. One command refreshes all of them:
 
 ```bash
 npm run sync:pharos-watch -- --source /path/to/pharos-watch

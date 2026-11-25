@@ -2,12 +2,12 @@ import { useEffect, useRef } from "react";
 import { BOATS_GUIDE, BOAT_SIGNALS_RULE, FOG_GUIDE, PHAROS_GUIDE, SAIL_RULE, SEA_RULE, STATION_RULE } from "./facts";
 import { useStore, useUISlice } from "./hooks";
 import { qualificationCopy, readingSentence } from "./source-state";
-import type { EndpointKey } from "../model/types";
+import { isCoreBoat, type EndpointKey } from "../model/types";
 import { getFeed, type PickHit } from "./services";
 
 const STOPS: Array<{ title: string; body: string; target: string; sources: EndpointKey[] }> = [
   { title: "The Pharos: market-wide stability", body: PHAROS_GUIDE, target: "pharos", sources: ["stability"] },
-  { title: "Boats and piers: supply by chain", body: BOATS_GUIDE, target: "far-ports", sources: ["stablecoins"] },
+  { title: "Boats and piers: supply by chain", body: `${BOATS_GUIDE} Tokenized funds held as reserve backing lie furled in Reserve Anchorage off the Bonded Warehouse, outside core stablecoin totals and Safety Scores.`, target: "far-ports", sources: ["stablecoins"] },
   { title: "The Shoals: off-peg coins", body: `${SAIL_RULE} ${SEA_RULE}`, target: "shoals", sources: ["stablecoins", "pegSummary"] },
   { title: "Weather: early warning", body: `${STATION_RULE} ${BOAT_SIGNALS_RULE}`, target: "storm-mast", sources: ["stablecoins", "stress"] },
   { title: "The Keeper’s Log: freshness", body: `Fog means stale data. ${FOG_GUIDE}`, target: "keeperslog", sources: [] },
@@ -16,7 +16,7 @@ export function guideStopFor(hit: PickHit): number | null {
   if (hit.kind === "boat" || hit.kind === "harbour") return 1;
   if (hit.kind !== "landmark") return null;
   return hit.id === "pharos" || hit.id === "chartroom" ? 0
-    : hit.id === "far-ports" || hit.id === "the-roads" || hit.id === "registry" ? 1
+    : hit.id === "far-ports" || hit.id === "the-roads" || hit.id === "registry" || hit.id === "warehouse" || hit.id === "reserve-anchorage" ? 1
       : hit.id === "shoals" ? 2 : hit.id === "storm-mast" ? 3 : hit.id === "keeperslog" ? 4 : null;
 }
 
@@ -38,7 +38,7 @@ function GuideReading({ stop }: { stop: number }) {
   }, []);
   useEffect(() => { head.current?.focus({ preventScroll: true }); }, [stop]);
   const reading = STOPS[stop];
-  const boat = stop === 1 ? model?.boats.find((b) => b.state !== "wrecked") : null;
+  const boat = stop === 1 ? model?.boats.find((b) => isCoreBoat(b) && b.state !== "wrecked") : null;
   const hit: PickHit = boat ? { kind: "boat", id: boat.id } : { kind: "landmark", id: reading.target };
   const available = !!store.picking.worldPosition(hit);
   // the same disclosure as the Pharos panel, tag and ledger when the index was computed without an input

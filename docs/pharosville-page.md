@@ -1,10 +1,11 @@
 # PharosVille Route Contract
 
-Last updated: 2026-10-14
+Last updated: 2026-11-25
 
 PharosVille is a living stablecoin harbour at
-`https://pharosville.pharos.watch/`. Every stablecoin is a boat in a lighthouse
-harbour town, sailing between chain harbours in proportion to its supply. The
+`https://pharosville.pharos.watch/`. Every active core stablecoin is a boat in a lighthouse
+harbour town, sailing between chain harbours in proportion to its supply, while
+tokenized funds anchor separately in Reserve Anchorage off the Bonded Warehouse. The
 world carries the meaning; exact readings appear only on demand, in the hover
 tag, the side panel and the ledger.
 

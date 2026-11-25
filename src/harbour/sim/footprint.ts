@@ -1,15 +1,18 @@
 import hulls from "./hull-footprints.json";
 import { indexVariants, pickVariant } from "../fleet/variants";
 import { titanFor } from "../fleet/titans";
-import type { Boat } from "../model/types";
+import { isTokenizedFund, type Boat } from "../model/types";
 import type { SimLayout } from "./layout-graph";
 
 const index = indexVariants(hulls);
 const byId = new Map(hulls.map((h) => [h.id, h]));
 
 /** Same variant fallback and scaling as FleetSystem; this compact manifest slice is checked in tests. */
-export function footprint(b: Pick<Boat, "id" | "rig" | "hullClass">, L: Pick<SimLayout, "loa" | "beam">): { loa: number; beam: number } {
-  const hero = titanFor(b.id, (id) => byId.has(id));
+export function footprint(
+  b: Pick<Boat, "id" | "rig" | "hullClass"> & Partial<Pick<Boat, "listingClass" | "state">>,
+  L: Pick<SimLayout, "loa" | "beam">,
+): { loa: number; beam: number } {
+  const hero = isTokenizedFund(b) ? null : titanFor(b.id, (id) => byId.has(id));
   const h = byId.get(hero ?? pickVariant(index, b.rig, b.hullClass) ?? "");
   const loa = hero && h ? h.loa_m : L.loa[b.hullClass];
   return { loa, beam: h ? h.beam_m * (loa / h.loa_m) : L.beam[b.hullClass] };

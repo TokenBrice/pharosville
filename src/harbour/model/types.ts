@@ -24,7 +24,8 @@ export type EndpointKey = PharosVilleApiEndpointKey;
 // ------------------------------------------------------------------ inputs
 
 export type CoinRow = Pick<StablecoinData, "id" | "name" | "symbol" | "pegType" | "circulating" | "chainCirculating" | "chains">
-  & Partial<Pick<StablecoinData, "price" | "circulatingPrevDay" | "circulatingPrevWeek" | "circulatingPrevMonth">>;
+  & Partial<Pick<StablecoinData, "price" | "circulatingPrevDay" | "circulatingPrevWeek" | "circulatingPrevMonth">>
+  & { frozen?: boolean };
 export interface StablecoinsPayload { peggedAssets: CoinRow[] }
 
 export type ChainRow = Pick<ChainSummary, "id" | "name" | "totalUsd"> & Partial<Pick<ChainSummary, "dominanceShare" | "healthScore" | "healthBand" | "change24hPct" | "change7dPct" | "change30dPct">>;
@@ -43,7 +44,11 @@ export interface StressPayload {
   updatedAt?: number;
   coverageRatio?: number;
 }
-export interface SafetyGradesPayload { grades: Array<Pick<SafetyGradeEntry, "id" | "grade">>; methodologyVersion?: string | null; updatedAt?: number }
+export interface SafetyGradesPayload {
+  grades: Array<Pick<SafetyGradeEntry, "id" | "grade"> & { ratingStatus?: string | undefined; notRatedReason?: string | null | undefined }>;
+  methodologyVersion?: string | null;
+  updatedAt?: number;
+}
 export interface MintBurnPayload {
   hourly: Array<Pick<MintBurnFlowsResponse["hourly"][number], "hourTs" | "netFlowUsd" | "mintVolumeUsd" | "burnVolumeUsd"> & { valuation?: HourValuation | undefined }>;
   coins?: Array<Pick<MintBurnFlowsResponse["coins"][number], "stablecoinId" | "mintVolume24hUsd" | "burnVolume24hUsd" | "netFlow24hUsd" | "netFlow7dUsd"> & {
@@ -95,10 +100,42 @@ export interface BuildOptions {
 // ------------------------------------------------------------------ outputs
 
 export type RigFamily = "usd" | "eur" | "gold" | "fiat" | "other";
-export type BoatState = "circuit" | "moored" | "shoals" | "wrecked";
+export type ListingClass = "core-stablecoin" | "tokenized-fund" | "stablecoin-variant" | "review-hold" | "excluded";
+export type BoatListingClass = "core-stablecoin" | "tokenized-fund";
+export type BoatState = "circuit" | "moored" | "shoals" | "wrecked" | "reserve";
 export type DewsBand = "CALM" | "WATCH" | "ALERT" | "WARNING" | "DANGER";
-/** "far" = the Far Ports (chains without a pier + unattributed supply). */
+/** "far" = the Far Ports (chains without a pier + unattributed supply); "reserve" = Reserve Anchorage. */
 export type Where = string;
+
+export interface FundMeta {
+  /** True for NAV-accreting shares, false for fixed-par ($1) shares, null when inferred from live grades without synced metadata. */
+  navToken: boolean | null;
+  pegCurrency: string;
+  archetype: string | null;
+  backedIds: string[];
+  liveAdapterBackedIds?: string[];
+}
+
+export interface VariantSummary {
+  id: string;
+  symbol: string;
+  name: string;
+  kind: string;
+  supply: number;
+}
+
+export interface ReviewHoldEntry {
+  id: string;
+  symbol: string;
+  name: string;
+  supply: number;
+}
+
+export const isTokenizedFund = (b: { listingClass?: BoatListingClass | undefined; state?: BoatState | undefined } | null | undefined): boolean =>
+  b?.listingClass === "tokenized-fund" || b?.state === "reserve";
+
+export const isCoreBoat = (b: { listingClass?: BoatListingClass | undefined; state?: BoatState | undefined } | null | undefined): boolean =>
+  !!b && !isTokenizedFund(b);
 
 export interface CircuitStop {
   /** Pier chain name, or null for the Far Ports. */
@@ -135,6 +172,13 @@ export interface Boat {
   dews: DewsBand | null;
   dewsScore: number | null;
   grade: string | null;
+  /** Safety-grade status (e.g. "not-rated") and machine reason (e.g. "tokenized-fund-not-graded"). */
+  ratingStatus?: string | null;
+  gradeReason?: string | null;
+  /** Policy 2.0 listing class on water: "core-stablecoin" (default) or "tokenized-fund" (Reserve Anchorage). */
+  listingClass?: BoatListingClass;
+  /** Tokenized-fund metadata (NAV basis, archetype, backed core stablecoin IDs); absent on core stablecoins. */
+  fundMeta?: FundMeta | null;
   state: BoatState;
   /**
    * DA-07 maiden voyage: new to the register this week (model/readings.ts isMaiden). False when the feed is not
@@ -262,9 +306,22 @@ export interface HarbourModel {
   harbours: Harbour[];
   readings: HarbourReadings;
   truth: Record<EndpointKey, EndpointTruth>;
-  /** Totals reconcile: boats.length === payloadCount. */
+  /** On-water vessels count (`boats.length === payloadCount`; `peggedAssets.length === boats.length + excludedCount`). */
   payloadCount: number;
+  /** Core stablecoin supply total (Policy 2.0 core-stablecoins-v2: excludes tokenized funds, variants, frozen, review-hold). */
   supplyTotal: number;
+  /** Count of live (non-wrecked) core stablecoin vessels on the register (excludes tokenized funds and wrecks). */
+  coreCount?: number;
+  /** Count of active tokenized-fund vessels anchored in Reserve Anchorage (outside core totals). */
+  reserveCount?: number;
+  /** Combined AUM of active tokenized-fund vessels (strictly outside supplyTotal). */
+  reserveSupplyTotal?: number;
+  /** Live tracked stablecoin-variant children grouped by parent core stablecoin ID (excluded from boats and supplyTotal). */
+  variantsByParent?: Record<string, VariantSummary[]>;
+  /** Active review-hold entries (excluded from core totals and trading fleet). */
+  reviewHold?: ReviewHoldEntry[];
+  /** Number of upstream /api/stablecoins rows omitted from on-water vessels (variants, review-hold, frozen, excluded, untracked numeric IDs). */
+  excludedCount?: number;
   /** stablecoins endpoint usable (data present) — false means AWAITING DATA, empty harbour. */
   hasFleet: boolean;
 }

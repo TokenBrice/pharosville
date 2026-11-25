@@ -10,10 +10,10 @@
  * In order: logos (public/logos + data/logos.json, scripts/harbour/sync-logos.mjs) → brand colours
  * (data/brand-colors.json, sync-brand-colors.mjs) → the yard's order book (src/harbour/data/prelaunch.json,
  * sync-prelaunch.mjs) → the cemetery (shared/data/dead-stablecoins.json: Wreck Cove's names, causes, epitaphs and
- * obituaries, projected onto shared/'s strict schema; schema-gated by sync-schema.mjs) → the browser's slim registry
- * (shared/data/stablecoins/runtime-slim.json: the pre-launch and frozen coins of this repo's coins.generated.json, in
- * canonical order, plus runtime-active-ids.json for the active coin-panel allowlist;
- * sync-check.mjs fails when either is stale). Everything is planned and
+ * obituaries, projected onto shared/'s strict schema; schema-gated by sync-schema.mjs) → the synced Policy 2.0
+ * catalogs (shared/data/stablecoins/{listing-policy,runtime-active-ids,runtime-slim,social-cards}.json derived
+ * directly from upstream coins, canonical order, listing decisions and reserves; sync-check.mjs enforces every invariant).
+ * Everything is planned and
  * validated in memory first: on any schema violation it prints them, writes NOTHING and exits 1.
  * Deterministic and idempotent: a second run against the same source changes no byte. The stamp
  * data/pharos-watch-sync.json (source commit, sync date) is rewritten only when data changed.
@@ -29,8 +29,9 @@ import { findMediaFileProblems } from "../pharosville/validate-runtime-media.mjs
 import { BRAND_ENTRY, planBrandColors } from "./sync-brand-colors.mjs";
 import { planLogos } from "./sync-logos.mjs";
 import { buildPrelaunchBook } from "./sync-prelaunch.mjs";
+import { buildListingPolicy, buildSocialCards, LISTING_POLICY_PATH, SOCIAL_CARDS_PATH } from "./sync-listing-policy.mjs";
 import { buildRuntimeSlim, RUNTIME_SLIM, buildRuntimeActiveIds, RUNTIME_ACTIVE_IDS } from "./sync-check.mjs";
-import { loadRedirects, loadRegistry, SOURCE_PATHS } from "./sync-source.mjs";
+import { loadCanonicalOrder, loadListingDecisions, loadRedirects, loadRegistry, loadReservesDomain, SOURCE_PATHS } from "./sync-source.mjs";
 
 const run = promisify(execFile);
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -43,8 +44,10 @@ const FILES = {
   brand: "data/brand-colors.json",
   prelaunch: "src/harbour/data/prelaunch.json",
   dead: "shared/data/dead-stablecoins.json",
+  listingPolicy: LISTING_POLICY_PATH,
   slim: RUNTIME_SLIM,
   activeIds: RUNTIME_ACTIVE_IDS,
+  socialCards: SOCIAL_CARDS_PATH,
 };
 /** shared/'s DeadStablecoinAssetSchema is strict: the source's extra fields (logo, mechanismArchetype, recordedAt, …) are dropped. */
 const DEAD_KEYS = new Set(["id", "name", "symbol", "llamaId", "pegCurrency", "causeOfDeath", "deathDate", "peakMcap", "epitaph", "obituary", "sourceUrl", "sourceLabel", "contracts"]);
@@ -114,6 +117,9 @@ try {
 
   const registry = await loadRegistry(SOURCE);
   const redirects = await loadRedirects(SOURCE, registry);
+  const canonicalOrder = await loadCanonicalOrder(SOURCE);
+  const listingDecisions = await loadListingDecisions(SOURCE);
+  const reservesById = await loadReservesDomain(SOURCE);
 
   // 1. logos
   const L = await planLogos({ root: ROOT, source: SOURCE, registry, redirects, payloadCoins, rasterHashes: stamp.rasterized ?? {} });
@@ -127,11 +133,18 @@ try {
   for (const [id, v] of Object.entries(B.colors)) if (!BRAND_ENTRY.test(v)) problems.push(`brand-colors ${id}: ${v} is not "#rrggbb|#rrggbb"`);
 
   // 3. the yard's order book
-  const P = buildPrelaunchBook(registry, L.logos, B.colors);
+  const P = buildPrelaunchBook(registry, L.logos, B.colors, listingDecisions?.listingClassById ?? {});
   problems.push(...P.problems);
   const prelaunchBefore = await readJson(join(ROOT, FILES.prelaunch)).catch(() => ({ coins: [] }));
 
-  // 4. the cemetery, projected onto shared/'s schema and gated by it
+  // 4. Listing Policy 2.0 catalog, edge social-card table & runtime registry cuts
+  const LP = buildListingPolicy({ registry, listingDecisions, reservesById });
+  problems.push(...LP.problems);
+  const slimText = buildRuntimeSlim(registry, canonicalOrder, listingDecisions);
+  const activeIdsText = buildRuntimeActiveIds(registry, canonicalOrder, listingDecisions);
+  const socialCardsText = `${JSON.stringify(buildSocialCards({ registry, listingDecisions }), null, 1)}\n`;
+
+  // 5. the cemetery, projected onto shared/'s schema and gated by it
   const deadSrc = await readJson(join(SOURCE, "shared/data/dead-stablecoins.json"));
   if (!Array.isArray(deadSrc)) problems.push("source dead-stablecoins.json is not an array");
   const dead = (Array.isArray(deadSrc) ? deadSrc : []).map((r) => Object.fromEntries(Object.entries(r ?? {}).filter(([k]) => DEAD_KEYS.has(k))));
@@ -140,7 +153,9 @@ try {
   const tmp = await mkdtemp(join(tmpdir(), "pharos-watch-dead-"));
   try {
     await writeFile(join(tmp, "dead.json"), deadText);
-    await run(process.execPath, ["--import", "tsx", join(ROOT, "scripts/harbour/sync-schema.mjs"), join(tmp, "dead.json")], { cwd: ROOT });
+    const frozenPath = join(tmp, "frozen-ids.json");
+    await writeFile(frozenPath, `${JSON.stringify(LP.policy?.frozenIds ?? [])}\n`);
+    await run(process.execPath, ["--import", "tsx", join(ROOT, "scripts/harbour/sync-schema.mjs"), join(tmp, "dead.json"), "--frozen", frozenPath], { cwd: ROOT });
   } catch (err) {
     problems.push(...String(err.stderr || err.message).trim().split("\n").filter(Boolean));
   } finally {
@@ -158,8 +173,10 @@ try {
       [FILES.brand, `${JSON.stringify(B.colors, null, 1)}\n`],
       [FILES.prelaunch, `${JSON.stringify(P.book, null, 1)}\n`],
       [FILES.dead, deadText],
-      [FILES.slim, buildRuntimeSlim()],
-      [FILES.activeIds, buildRuntimeActiveIds()],
+      [FILES.listingPolicy, `${JSON.stringify(LP.policy, null, 2)}\n`],
+      [FILES.slim, slimText],
+      [FILES.activeIds, activeIdsText],
+      [FILES.socialCards, socialCardsText],
     ];
     const changed = [];
     for (const [rel, text] of outputs) {
@@ -180,6 +197,7 @@ try {
     // summary diff
     const deadBefore = JSON.parse(deadBeforeText);
     const preAfter = P.book.coins;
+    const activeIdsCount = JSON.parse(activeIdsText).length;
     console.log(`[sync] source ${SOURCE} @ ${src.commit ?? "(not a git checkout)"}${src.commitDate ? ` (${src.commitDate})` : ""}`);
     console.log(`[sync] logos.json   ${fmt(idDelta(L.before, L.logos))}; files: ${L.writes.size} written, ${L.deletes.length} deleted; live payload covered ${L.payloadCovered}`);
     if (L.rejected.length) console.log(`[sync]   refused broken source logos (entries keep their current file): ${L.rejected.join("; ")}`);
@@ -188,6 +206,7 @@ try {
     console.log(`[sync] brand-colors ${fmt(idDelta(B.before, B.colors))}; derived ${B.derived.length}${B.skipped.length ? `; skipped ${B.skipped.join(", ")}` : ""}`);
     console.log(`[sync] prelaunch    ${P.book.count} coins ${JSON.stringify(P.book.phases)}; ${fmt(idDelta(byId(prelaunchBefore.coins ?? []), byId(preAfter)))}`);
     console.log(`[sync] dead coins   ${dead.length} (was ${deadBefore.length}); ${fmt(idDelta(byId(deadBefore), byId(dead)))}`);
+    console.log(`[sync] policy 2.0   active=${activeIdsCount}, funds=${LP.policy.fundIds.length}, variants=${LP.policy.variantIds.length}, reviewHold=${LP.policy.reviewHoldIds.length}, frozen=${LP.policy.frozenIds.length}, excluded=${LP.policy.excludedIds.length}`);
     if (anything) {
       const stat = await git(ROOT, "diff", "--shortstat", "--", ...Object.values(FILES), "public/logos").catch(() => "");
       console.log(`[sync] changed: ${changed.join(", ") || "logo files only"}${stat ? ` (${stat})` : ""}`);

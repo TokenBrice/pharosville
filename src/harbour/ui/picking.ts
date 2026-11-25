@@ -15,7 +15,7 @@ import { landmarkHover } from "../world/landmark-hover";
 import { yardCoins, yardHullPosition } from "./yard";
 
 /** Landmarks read as areas on the water (polygon / footprint hit), not as buildings. */
-const AREA_ZONE: Record<string, string> = { shoals: "shoals", "wreck-cove": "wreckCove", "far-ports": "farPorts" };
+const AREA_ZONE: Record<string, string> = { shoals: "shoals", "wreck-cove": "wreckCove", "far-ports": "farPorts", "reserve-anchorage": "reserveAnchorage" };
 /** Purely decorative landmarks are not offered for picking at all (they would only add noise). */
 const SKIP = new Set(["breakwater"]);
 /** Wrecks answer the pointer only from this close (px per m at the cove): further out, the cove zone does. */
@@ -410,7 +410,8 @@ export class AnalyticPicking implements PickingService {
       if (hit.id === HARBOUR_TUG) { const T = getSim(this.ctx)?.tugs; return T?.count ? [T.x[0], 0, T.z[0]] : null; }
       const place = this.placeOf(hit.id);
       if (place) return place.ground;
-      const lm = L.landmarks.find((l) => l.id === hit.id);
+      const lm = L.landmarks.find((l) => l.id === hit.id)
+        ?? (hit.id === "reserve-anchorage" ? L.landmarks.find((l) => l.id === "warehouse") : undefined);
       return lm ? [...lm.position] : null;
     }
     if (hit.at) return [hit.at[0], 0, hit.at[2]];
@@ -438,7 +439,8 @@ export class AnalyticPicking implements PickingService {
       if (place) return this.project(place.top[0], place.top[1], place.top[2], out);
       const anchor = this.anchorOf(hit.id);
       if (anchor) return this.project(anchor[0], anchor[1], anchor[2], out);
-      const lm = L.landmarks.find((l) => l.id === hit.id);
+      const lm = L.landmarks.find((l) => l.id === hit.id)
+        ?? (hit.id === "reserve-anchorage" ? L.landmarks.find((l) => l.id === "warehouse") : undefined);
       return lm ? this.project(lm.position[0], lm.position[1] + 10, lm.position[2], out) : null;
     }
     if (hit.kind === "wreck") {

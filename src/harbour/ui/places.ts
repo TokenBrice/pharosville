@@ -54,10 +54,11 @@ export const PLACE_NAME: Record<string, string> = {
   mint: "The Mint", burn: "The Burn", slipway: "The Shipyard", "customs-house": "Customs House", registry: "The Registry",
   chartroom: "The Chart Room", "storm-mast": "Storm-signal Station", harbourmaster: "Harbourmaster’s Office", keeperslog: "The Keeper’s Log",
   pharos: "The Pharos", "harbour-tug": "Harbour tug", shoals: "The Shoals", "far-ports": "The Far Ports", "wreck-cove": "Wreck Cove", "the-roads": "The Roads",
+  warehouse: "Bonded Warehouse", "reserve-anchorage": "Reserve Anchorage",
 };
 
 /** A sea zone that opens a panel (as a landmark id), or null (open water and harbour water are handled apart). */
-export const ZONE_PANEL: Record<string, string> = { shoals: "shoals", farPorts: "far-ports", wreckCove: "wreck-cove", roads: "the-roads" };
+export const ZONE_PANEL: Record<string, string> = { shoals: "shoals", farPorts: "far-ports", wreckCove: "wreck-cove", roads: "the-roads", reserveAnchorage: "reserve-anchorage" };
 
 /** The chain a harbour office stands for ("harbour-office:hyperliquid-l1" → "Hyperliquid L1"), by the layout's piers. */
 export function officeChain(L: HarbourLayout | null, kind: string): string | null {

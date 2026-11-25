@@ -1,7 +1,14 @@
-import { RUNTIME_TRACKED_STABLECOINS, RUNTIME_ACTIVE_META_BY_ID } from "../shared/lib/stablecoins/runtime-registry";
+import socialCardsAsset from "../shared/data/stablecoins/social-cards.json";
 import { CHAIN_META } from "../shared/lib/chains";
 import { canonicalSubjectUrl, parseSubject } from "../shared/lib/selection-link";
 import { nightShell, wantsNightPoster } from "./_poster";
+
+type SocialIdentityTable = {
+  core: Record<string, [string, string]>;
+  funds: Record<string, [string, string]>;
+  yard: Record<string, [string, string]>;
+};
+const SOCIAL_CARDS = socialCardsAsset as unknown as SocialIdentityTable;
 
 /**
  * Per-selection social cards for the app shell at `/`.
@@ -61,6 +68,7 @@ const PLACE_NAMES: Record<string, string> = {
   "storm-mast": "Storm-signal Station", "wreck-cove": "Wreck Cove", "far-ports": "The Far Ports", registry: "The Registry",
   harbourmaster: "Harbourmaster’s Office", slipway: "The Shipyard", "tide-gauge": "Tide Gauge", mint: "The Mint", burn: "The Burn",
   chartroom: "The Chart Room", keeperslog: "The Keeper’s Log", "the-roads": "The Roads",
+  warehouse: "Bonded Warehouse", "reserve-anchorage": "Reserve Anchorage",
 };
 
 /**
@@ -89,11 +97,15 @@ export function socialCardForSelection(rawSelection: string | null): SocialCardC
   if (!subject) return null;
   let name: string, title: string, description: string;
   if (subject.kind === "ship") {
-    const meta = RUNTIME_ACTIVE_META_BY_ID.get(subject.id);
-    if (!meta) return null;
-    name = meta.symbol === meta.name ? meta.symbol : `${meta.name} (${meta.symbol})`;
-    title = `${meta.symbol} — ${meta.name} in PharosVille`;
-    description = `Watch ${name} in PharosVille: the water under its hull is peg risk, the harbour it docks in is its chain, and the lighthouse beam reads the fleet's stability.`;
+    const isFund = Object.hasOwn(SOCIAL_CARDS.funds, subject.id);
+    const pair = isFund ? SOCIAL_CARDS.funds[subject.id] : Object.hasOwn(SOCIAL_CARDS.core, subject.id) ? SOCIAL_CARDS.core[subject.id] : null;
+    if (!pair) return null;
+    const [symbol, fullName] = pair;
+    name = symbol === fullName ? symbol : `${fullName} (${symbol})`;
+    title = `${symbol} — ${fullName} in PharosVille`;
+    description = isFund
+      ? `Inspect ${name} in PharosVille's Reserve Anchorage: a tokenized fund anchored off the Bonded Warehouse, tracked separately from the core stablecoin fleet.`
+      : `Watch ${name} in PharosVille: the water under its hull is peg risk, the harbour it docks in is its chain, and the lighthouse beam reads the fleet's stability.`;
   } else if (subject.kind === "place") {
     if (!Object.hasOwn(PLACE_NAMES, subject.id)) return null;
     name = PLACE_NAMES[subject.id];
@@ -105,11 +117,10 @@ export function socialCardForSelection(rawSelection: string | null): SocialCardC
     title = `${name} — PharosVille`;
     description = `Explore ${name} in PharosVille: harbours show stablecoin supply by chain.`;
   } else if (subject.kind === "yard") {
-    // Reuse the registry already bundled here; the larger launch book stays out of the shell Function.
-    const meta = RUNTIME_TRACKED_STABLECOINS.find((coin) => coin.id === subject.id && coin.status === "pre-launch");
-    if (!meta) return null;
-    name = meta.symbol === meta.name ? meta.symbol : `${meta.name} (${meta.symbol})`;
-    title = `${meta.symbol} — ${meta.name} in the PharosVille Shipyard`;
+    if (!Object.hasOwn(SOCIAL_CARDS.yard, subject.id)) return null;
+    const [symbol, fullName] = SOCIAL_CARDS.yard[subject.id];
+    name = symbol === fullName ? symbol : `${fullName} (${symbol})`;
+    title = `${symbol} — ${fullName} in the PharosVille Shipyard`;
     description = `Explore the Shipyard record for ${name} in PharosVille.`;
   } else return null; // Wreck narratives stay in the deferred detail chunk.
   return { title, description, url: canonicalSubjectUrl(subject), subjectLine: `Shared subject: ${name}.` };

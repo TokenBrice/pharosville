@@ -25,7 +25,29 @@ it("scans real search, every ledger tab, coin/landmark panels, sound and help st
   fireEvent.keyDown(input, { key: "Enter" }); await screen.findByRole("heading", { name: "USDC" }); await scan();
   act(() => f.store.select({ kind: "landmark", id: "pharos" }, { fly: false }));
   await screen.findByRole("heading", { name: "The Pharos" }); await scan();
-  act(() => { f.store.select(null); f.store.set({ ledgerOpen: true }); });
+  f.model.boats.push({
+    ...f.model.boats[0], id: "buidl-blackrock", symbol: "BUIDL", name: "BlackRock USD Fund",
+    supply: 2.1e9, state: "reserve", listingClass: "tokenized-fund", grade: null, ratingStatus: "not-rated",
+    gradeReason: "tokenized-fund-not-graded", nullPeg: true, pegDeviationBps: null, dews: null, dewsScore: null,
+    fundMeta: { navToken: false, pegCurrency: "USD", archetype: "tbill", backedIds: [f.model.boats[0].id] },
+  });
+  f.model.reserveCount = 1; f.model.reserveSupplyTotal = 2.1e9;
+  f.model.variantsByParent = { [f.model.boats[0].id]: [{ id: "susdc-test", symbol: "sUSDC", name: "Savings USDC", kind: "savings-passthrough", supply: 120e6 }] };
+  f.model.reviewHold = [{ id: "rcusd-r25", symbol: "rcUSD", name: "R25 USD", supply: 18.3e6 }];
+  act(() => f.store.set({ model: { ...f.model } }));
+  act(() => f.store.select({ kind: "boat", id: f.model.boats[0].id }, { fly: false }));
+  await screen.findByRole("heading", { name: "Reserve fund backing" }); await scan();
+  act(() => f.store.select({ kind: "boat", id: "buidl-blackrock" }, { fly: false }));
+  await screen.findByRole("heading", { name: "BUIDL" }); await scan();
+  act(() => f.store.select({ kind: "landmark", id: "warehouse" }, { fly: false }));
+  await screen.findByRole("heading", { name: "Bonded Warehouse" }); await scan();
+  act(() => f.store.select({ kind: "landmark", id: "registry" }, { fly: false }));
+  await screen.findByRole("heading", { name: "The Registry" }); await scan();
+  act(() => { f.store.select(null); f.store.set({ searchOpen: true }); });
+  const searchInput = await screen.findByRole("combobox");
+  fireEvent.change(searchInput, { target: { value: "buidl" } }); await scan();
+  fireEvent.change(searchInput, { target: { value: "susdc" } }); await scan();
+  act(() => { f.store.set({ searchOpen: false, ledgerOpen: true }); });
   await screen.findByRole("heading", { name: "What you are looking at" });
   for (const tab of screen.getAllByRole("tab")) { fireEvent.click(tab); await scan(); }
   act(() => f.store.set({ ledgerOpen: false }));

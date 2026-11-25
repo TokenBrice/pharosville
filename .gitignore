@@ -8,6 +8,7 @@ playwright-report/
 .playwright-mcp/
 output/
 outputs/
+/agents/
 .worktrees/
 .claude/*
 !.claude/skills/

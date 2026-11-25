@@ -1,0 +1,1236 @@
+{
+ "core": {
+  "a7a5-old-vector": [
+   "A7A5",
+   "A7A5"
+  ],
+  "aid-gaib": [
+   "AID",
+   "GAIB AID"
+  ],
+  "alusd-alchemix": [
+   "alUSD",
+   "Alchemix USD"
+  ],
+  "apxusd-apyx": [
+   "apxUSD",
+   "apxUSD"
+  ],
+  "audd-novatti": [
+   "AUDD",
+   "AUDD"
+  ],
+  "audf-forte": [
+   "AUDF",
+   "Forte AUD"
+  ],
+  "audm-macropod": [
+   "AUDM",
+   "Macropod"
+  ],
+  "audm-mento": [
+   "AUDm",
+   "Mento Australian Dollar"
+  ],
+  "audx-aussie-dollar-token": [
+   "AUDX",
+   "Aussie Dollar Token"
+  ],
+  "ausd-agora": [
+   "AUSD",
+   "Agora Dollar"
+  ],
+  "avusd-avant": [
+   "avUSD",
+   "Avant USD"
+  ],
+  "axcnh-anchorx": [
+   "AxCNH",
+   "AxCNH"
+  ],
+  "bold-liquity": [
+   "BOLD",
+   "Liquity BOLD"
+  ],
+  "brl1-brl1": [
+   "BRL1",
+   "BRL1"
+  ],
+  "brla-brla-digital": [
+   "BRLA",
+   "BRLA Digital"
+  ],
+  "brlm-mento": [
+   "BRLm",
+   "Mento Brazilian Real"
+  ],
+  "brlv-crown": [
+   "BRLV",
+   "Crown BRLV"
+  ],
+  "brz-transfero": [
+   "BRZ",
+   "Brazilian Digital"
+  ],
+  "btcusd-btcfi": [
+   "BtcUSD",
+   "Bitcoin USD"
+  ],
+  "buck-bucket-protocol": [
+   "BUCK",
+   "Bucket Protocol BUCK"
+  ],
+  "cadc-cad-coin": [
+   "CADC",
+   "CAD Coin"
+  ],
+  "cadd-cad-digital": [
+   "CADD",
+   "CAD Digital"
+  ],
+  "cadm-mento": [
+   "CADm",
+   "Mento Canadian Dollar"
+  ],
+  "cash-phantom": [
+   "CASH",
+   "CASH"
+  ],
+  "cdp-enosys": [
+   "CDP",
+   "Enosys Loans CDP"
+  ],
+  "ceur-celo": [
+   "EURm",
+   "Mento Euro"
+  ],
+  "cgo-comtech": [
+   "CGO",
+   "Comtech Gold"
+  ],
+  "cgusd-cygnus-finance": [
+   "cgUSD",
+   "Cygnus Finance Global USD"
+  ],
+  "chfau-allunity": [
+   "CHFAU",
+   "AllUnity CHF"
+  ],
+  "chfm-mento": [
+   "CHFm",
+   "Mento Swiss Franc"
+  ],
+  "cjpy-yamato": [
+   "CJPY",
+   "Convertible JPY Token"
+  ],
+  "cngn-compliant-naira": [
+   "cNGN",
+   "Compliant Naira"
+  ],
+  "copm-mento": [
+   "COPm",
+   "Mento Colombian Peso"
+  ],
+  "copm-minteo": [
+   "COPM",
+   "COPM by Minteo"
+  ],
+  "crvusd-curve": [
+   "crvUSD",
+   "crvUSD"
+  ],
+  "cusd-cap": [
+   "CUSD",
+   "Cap cUSD"
+  ],
+  "cusd-celo": [
+   "USDm",
+   "Mento Dollar"
+  ],
+  "dai-makerdao": [
+   "DAI",
+   "Dai"
+  ],
+  "deuro-deuro": [
+   "DEURO",
+   "Decentralized Euro"
+  ],
+  "dgld-gold-token-sa": [
+   "DGLD",
+   "DGLD Tokenized Gold"
+  ],
+  "dllr-sovryn": [
+   "DLLR",
+   "Sovryn Dollar"
+  ],
+  "doc-money-on-chain": [
+   "DOC",
+   "Dollar on Chain"
+  ],
+  "dola-inverse-finance": [
+   "DOLA",
+   "Dola"
+  ],
+  "dusd-alto": [
+   "DUSD",
+   "Alto DUSD"
+  ],
+  "dusd-standx": [
+   "DUSD",
+   "StandX DUSD"
+  ],
+  "emxn-telcoin": [
+   "eMXN",
+   "Telcoin MXN"
+  ],
+  "eur0-usual": [
+   "EUR0",
+   "Usual EUR"
+  ],
+  "eurau-allunity": [
+   "EURAU",
+   "AllUnity EUR"
+  ],
+  "eurc-circle": [
+   "EURC",
+   "EURC"
+  ],
+  "eurcv-societe-generale-forge": [
+   "EURCV",
+   "EUR CoinVertible"
+  ],
+  "eure-monerium": [
+   "EURE",
+   "Monerium EUR emoney"
+  ],
+  "euri-banking-circle": [
+   "EURI",
+   "Eurite"
+  ],
+  "europ-schuman": [
+   "EUROP",
+   "Schuman EUROP"
+  ],
+  "eurot-token-teknoloji": [
+   "EUROT",
+   "Euro Token"
+  ],
+  "eurq-quantoz": [
+   "EURQ",
+   "Quantoz EURQ"
+  ],
+  "eurs-stasis": [
+   "EURS",
+   "Stasis Euro"
+  ],
+  "eurw-newrails": [
+   "EURW",
+   "Newrails Euro"
+  ],
+  "eusd-electronic-usd": [
+   "EUSD",
+   "Electronic Dollar"
+  ],
+  "eusd-telcoin": [
+   "eUSD",
+   "eUSD"
+  ],
+  "fdusd-first-digital": [
+   "FDUSD",
+   "First Digital USD"
+  ],
+  "feusd-felix": [
+   "FEUSD",
+   "Felix feUSD"
+  ],
+  "fidd-fidelity": [
+   "FIDD",
+   "Fidelity Digital Dollar"
+  ],
+  "frax-frax": [
+   "FRAX",
+   "Legacy Frax Dollar"
+  ],
+  "frnt-wyoming": [
+   "FRNT",
+   "Frontier Stable Token"
+  ],
+  "frxusd-frax": [
+   "FRXUSD",
+   "Frax USD"
+  ],
+  "ftusd-flying-tulip": [
+   "ftUSD",
+   "Flying Tulip USD"
+  ],
+  "fusd-finchain": [
+   "FUSD",
+   "FinChain Dollar"
+  ],
+  "fusd-freedom-dollar": [
+   "fUSD",
+   "Freedom Dollar"
+  ],
+  "fxusd-f-x-protocol": [
+   "fxUSD",
+   "fxUSD"
+  ],
+  "gbpa-agant": [
+   "GBPA",
+   "Agant GBP"
+  ],
+  "gbpe-monerium": [
+   "GBPe",
+   "Monerium GBP emoney"
+  ],
+  "gbpm-mento": [
+   "GBPm",
+   "Mento British Pound"
+  ],
+  "ggbr-goldfish-gold": [
+   "GGBR",
+   "Goldfish Gold"
+  ],
+  "gho-aave": [
+   "GHO",
+   "GHO"
+  ],
+  "ghsm-mento": [
+   "GHSm",
+   "Mento Ghanaian Cedi"
+  ],
+  "gldt-gold-dao": [
+   "GLDT",
+   "Gold Token"
+  ],
+  "gldy-streamex": [
+   "GLDY",
+   "Streamex Gold Yield"
+  ],
+  "gusd-gemini": [
+   "GUSD",
+   "Gemini Dollar"
+  ],
+  "hbd-hive": [
+   "HBD",
+   "Hive Backed Dollar"
+  ],
+  "hchf-hedera-swiss-franc": [
+   "HCHF",
+   "Hedera Swiss Franc"
+  ],
+  "hollar-hydrated": [
+   "HOLLAR",
+   "Hydrated Dollar"
+  ],
+  "honey-berachain": [
+   "BUSD",
+   "Bera USD"
+  ],
+  "hyusd-hylo": [
+   "hyUSD",
+   "Hylo HYUSD"
+  ],
+  "idrt-rupiah-token": [
+   "IDRT",
+   "Rupiah Token"
+  ],
+  "idrx-idrx": [
+   "IDRX",
+   "IDRX"
+  ],
+  "itry-brix": [
+   "iTRY",
+   "Brix iTRY"
+  ],
+  "iusd-indigo-protocol": [
+   "iUSD",
+   "Indigo iUSD"
+  ],
+  "iusd-infinifi": [
+   "IUSD",
+   "infiniFi USD"
+  ],
+  "jpyc-jpyc": [
+   "JPYC",
+   "JPY Coin"
+  ],
+  "jpym-mento": [
+   "JPYm",
+   "Mento Japanese Yen"
+  ],
+  "jpyt-dephaser": [
+   "JPYT",
+   "Dephaser JPY"
+  ],
+  "jupusd-jupiter": [
+   "JUPUSD",
+   "JupUSD"
+  ],
+  "kag-kinesis": [
+   "KAG",
+   "Kinesis Silver"
+  ],
+  "kau-kinesis": [
+   "KAU",
+   "Kinesis Gold"
+  ],
+  "kesm-mento": [
+   "KESm",
+   "Mento Kenyan Shilling"
+  ],
+  "kgst-kyrgyz-som": [
+   "KGST",
+   "Kyrgyz Som Stablecoin"
+  ],
+  "krwq-iq": [
+   "KRWQ",
+   "KRWQ"
+  ],
+  "lisusd-lista": [
+   "lisUSD",
+   "Lista USD"
+  ],
+  "lusd-liquity": [
+   "LUSD",
+   "Liquity USD"
+  ],
+  "lvusd-leverup": [
+   "LVUSD",
+   "LeverUp USD"
+  ],
+  "m-m0": [
+   "M",
+   "M by M0"
+  ],
+  "mai-qidao": [
+   "MAI",
+   "MAI"
+  ],
+  "meusd-mezo": [
+   "MUSD",
+   "Mezo USD"
+  ],
+  "money-defi-money": [
+   "MONEY",
+   "defi.money"
+  ],
+  "moveusd-cfx": [
+   "MOVEUSD",
+   "CFX MoveUSD"
+  ],
+  "msusd-metronome": [
+   "msUSD",
+   "Metronome Synth USD"
+  ],
+  "mxnb-juno": [
+   "MXNB",
+   "MXNB"
+  ],
+  "mxne-real-mxn": [
+   "MXNe",
+   "Real MXN"
+  ],
+  "mxnt-tether": [
+   "MXNT",
+   "Mexican Peso Tether"
+  ],
+  "myrc-blox": [
+   "MYRC",
+   "MYRC"
+  ],
+  "nect-beraborrow": [
+   "NECT",
+   "Nectar"
+  ],
+  "nusd-neutrl": [
+   "NUSD",
+   "Neutrl USD"
+  ],
+  "nusd-nexus": [
+   "NUSD",
+   "Nexus USD"
+  ],
+  "nxusd-nereus": [
+   "NXUSD",
+   "NXUSD"
+  ],
+  "oned-gennius": [
+   "ONED",
+   "ONED USD"
+  ],
+  "ousd-open-standard": [
+   "OUSD",
+   "Open USD"
+  ],
+  "ousd-origin-protocol": [
+   "OUSD",
+   "Origin Dollar"
+  ],
+  "pathusd-bridge": [
+   "pathUSD",
+   "PathUSD"
+  ],
+  "paxg-paxos": [
+   "PAXG",
+   "PAX Gold"
+  ],
+  "pgold-pleasing": [
+   "PGOLD",
+   "Pleasing Gold"
+  ],
+  "pmusd-precious-metals": [
+   "pmUSD",
+   "pmUSD"
+  ],
+  "pusd-polymarket": [
+   "PUSD",
+   "Polymarket USD"
+  ],
+  "pyusd-paypal": [
+   "PYUSD",
+   "PayPal USD"
+  ],
+  "pyusdx-moonpay": [
+   "PYUSDx",
+   "PYUSDx"
+  ],
+  "qcad-stablecorp": [
+   "QCAD",
+   "Stablecorp QCAD"
+  ],
+  "reusd-resupply": [
+   "REUSD",
+   "Resupply USD"
+  ],
+  "rlusd-ripple": [
+   "RLUSD",
+   "Ripple USD"
+  ],
+  "rusd-reservoir": [
+   "rUSD",
+   "Reservoir rUSD"
+  ],
+  "satusd-river": [
+   "satUSD",
+   "River Stablecoin"
+  ],
+  "sbc-brale": [
+   "SBC",
+   "Brale SBC"
+  ],
+  "scusd-rings": [
+   "scUSD",
+   "Rings scUSD"
+  ],
+  "sofid-sofi": [
+   "SOFID",
+   "SoFiUSD"
+  ],
+  "stbt-matrixdock": [
+   "STBT",
+   "Matrixdock Short-Term Treasury Bill Token"
+  ],
+  "suiusde-sui": [
+   "suiUSDe",
+   "eSui Dollar"
+  ],
+  "susd-solayer": [
+   "sUSD",
+   "Solayer USD"
+  ],
+  "swanusd-swan": [
+   "swanUSD",
+   "swanUSD"
+  ],
+  "tgbp-tokenised": [
+   "tGBP",
+   "Tokenised GBP"
+  ],
+  "thusd-theo": [
+   "THUSD",
+   "Theo thUSD"
+  ],
+  "trusd-tori": [
+   "trUSD",
+   "Tori trUSD"
+  ],
+  "tryb-bilira": [
+   "TRYB",
+   "BiLira"
+  ],
+  "tusd-trueusd": [
+   "TUSD",
+   "TrueUSD"
+  ],
+  "u-united-stables": [
+   "U",
+   "United Stables"
+  ],
+  "usat-tether": [
+   "USAT",
+   "USA₮"
+  ],
+  "usbd-bima": [
+   "USBD",
+   "Bima USBD"
+  ],
+  "usd0-usual": [
+   "USD0",
+   "Usual USD"
+  ],
+  "usd1-world-liberty-financial": [
+   "USD1",
+   "World Liberty Financial USD"
+  ],
+  "usda-alpha-partner": [
+   "USDA",
+   "Alpha Partner USDA"
+  ],
+  "usda-anzens": [
+   "USDA",
+   "Anzens USDA"
+  ],
+  "usdaf-asymmetry": [
+   "USDaf",
+   "Asymmetry USDaf"
+  ],
+  "usdai-usd-ai": [
+   "USDai",
+   "USD.AI"
+  ],
+  "usdat-saturn": [
+   "USDat",
+   "Saturn USDat"
+  ],
+  "usdc-circle": [
+   "USDC",
+   "USD Coin"
+  ],
+  "usdcv-societe-generale-forge": [
+   "USDCV",
+   "USD CoinVertible"
+  ],
+  "usdcx-movement": [
+   "USDCx",
+   "Movement USDCx"
+  ],
+  "usdd-tron-dao-reserve": [
+   "USDD",
+   "USDD"
+  ],
+  "usde-ethena": [
+   "USDe",
+   "Ethena USDe"
+  ],
+  "usdf-astherus": [
+   "USDF",
+   "Aster USDF"
+  ],
+  "usdf-falcon": [
+   "USDf",
+   "Falcon USD"
+  ],
+  "usdfc-secured-finance": [
+   "USDFC",
+   "USDFC"
+  ],
+  "usdfr-forest-road": [
+   "USDfr",
+   "Forest Road USDfr"
+  ],
+  "usdg-paxos": [
+   "USDG",
+   "Global Dollar"
+  ],
+  "usdglo-glo": [
+   "USDGLO",
+   "Glo Dollar"
+  ],
+  "usdgo-osl": [
+   "USDGO",
+   "USDGO"
+  ],
+  "usdh-hermetica": [
+   "USDh",
+   "Hermetica USDh"
+  ],
+  "usdh-hubble": [
+   "USDH",
+   "Hubble USDH"
+  ],
+  "usdm-mega": [
+   "USDM",
+   "MegaUSD"
+  ],
+  "usdm-moneta": [
+   "USDM",
+   "Moneta"
+  ],
+  "usdm-monetrix": [
+   "USDM",
+   "Monetrix USD"
+  ],
+  "usdn-smardex": [
+   "USDN",
+   "SMARDEX USDN"
+  ],
+  "usdo-openeden": [
+   "USDO",
+   "OpenEden OpenDollar"
+  ],
+  "usdon-ondo": [
+   "USDon",
+   "Ondo U.S. Dollar Token"
+  ],
+  "usdp-parallel": [
+   "USDp",
+   "Parallel USDp"
+  ],
+  "usdp-paxos": [
+   "USDP",
+   "Pax Dollar"
+  ],
+  "usdpt-western-union": [
+   "USDPT",
+   "US Dollar Payment Token"
+  ],
+  "usdq-quantoz": [
+   "USDQ",
+   "Quantoz USDQ"
+  ],
+  "usdq-quill": [
+   "USDQ",
+   "Quill USD"
+  ],
+  "usdrf-realfi": [
+   "USDrf",
+   "RealFi USDrf"
+  ],
+  "usdrif-rif": [
+   "USDRIF",
+   "RIF US Dollar"
+  ],
+  "usds-sky": [
+   "USDS",
+   "Sky Dollar"
+  ],
+  "usdsm-stable-mint": [
+   "USDSM",
+   "Stable Mint USD"
+  ],
+  "usdsui-sui": [
+   "USDsui",
+   "Sui Dollar"
+  ],
+  "usdt-tether": [
+   "USDT",
+   "Tether"
+  ],
+  "usdtb-ethena": [
+   "USDTB",
+   "Ethena USDtb"
+  ],
+  "usdu-unitas": [
+   "USDU",
+   "Unitas"
+  ],
+  "usdu-universal": [
+   "USDU",
+   "Universal USD"
+  ],
+  "usdu-usdu-finance": [
+   "USDU",
+   "USDU Finance"
+  ],
+  "usdv-solomon-v2": [
+   "USDV",
+   "Solomon USDv"
+  ],
+  "usdx-axis": [
+   "USDx",
+   "Axis USD"
+  ],
+  "usdx-hex-trust": [
+   "USDX",
+   "Hex Trust USDX"
+  ],
+  "usdx-kava": [
+   "USDX",
+   "USDX"
+  ],
+  "usdxl-last": [
+   "USDXL",
+   "Last USD"
+  ],
+  "usdz-anzen": [
+   "USDz",
+   "Anzen USDz"
+  ],
+  "usg-tangent": [
+   "USG",
+   "Tangent USD"
+  ],
+  "usn-noon": [
+   "USN",
+   "Noon USN"
+  ],
+  "usx-solstice": [
+   "USX",
+   "Solstice USX"
+  ],
+  "uty-xsy": [
+   "UTY",
+   "Unity"
+  ],
+  "uusd-anything-labs": [
+   "UUSD",
+   "Unity USD"
+  ],
+  "uusd-youves": [
+   "UUSD",
+   "Youves uUSD"
+  ],
+  "vchf-vnx": [
+   "VCHF",
+   "VNX Swiss Franc"
+  ],
+  "vgbp-vnx": [
+   "VGBP",
+   "VNX British Pound"
+  ],
+  "vnxau-vnx": [
+   "VNXAU",
+   "VNX Gold"
+  ],
+  "wars-argentine-peso": [
+   "wARS",
+   "Argentine Peso"
+  ],
+  "wbrl-ripio": [
+   "WBRL",
+   "Ripio wBRL"
+  ],
+  "wclp-ripio": [
+   "WCLP",
+   "Ripio wCLP"
+  ],
+  "wcop-ripio": [
+   "wCOP",
+   "Ripio wCOP"
+  ],
+  "weusd-picwe": [
+   "WEUSD",
+   "WEUSD"
+  ],
+  "wmxn-ripio": [
+   "wMXN",
+   "Ripio wMXN"
+  ],
+  "wpen-ripio": [
+   "WPEN",
+   "Ripio wPEN"
+  ],
+  "xagm-matrixdock": [
+   "XAGm",
+   "Matrixdock Silver"
+  ],
+  "xaum-matrixdock": [
+   "XAUm",
+   "Matrixdock Gold"
+  ],
+  "xaut-tether": [
+   "XAUT",
+   "Tether Gold"
+  ],
+  "xdai-gnosis": [
+   "xDAI",
+   "xDAI"
+  ],
+  "xgz-goldzip": [
+   "XGZ",
+   "GoldZip Gold"
+  ],
+  "xmd-metal-dollar": [
+   "XMD",
+   "Metal Dollar"
+  ],
+  "xo-exodus": [
+   "XO",
+   "XO Cash"
+  ],
+  "xofm-mento": [
+   "XOFm",
+   "Mento West African CFA Franc"
+  ],
+  "xsgd-straitsx": [
+   "XSGD",
+   "StraitsX XSGD"
+  ],
+  "xusd-babelfish": [
+   "XUSD",
+   "XUSD"
+  ],
+  "xusd-straitsx": [
+   "XUSD",
+   "StraitsX XUSD"
+  ],
+  "ylds-figure": [
+   "YLDS",
+   "YLDS"
+  ],
+  "yusd-aegis": [
+   "YUSD",
+   "Aegis YUSD"
+  ],
+  "yzusd-yuzu": [
+   "YZUSD",
+   "Yuzu USD"
+  ],
+  "zarm-mento": [
+   "ZARm",
+   "Mento South African Rand"
+  ],
+  "zarp-zarp": [
+   "ZARP",
+   "ZARP Stablecoin"
+  ],
+  "zarsc-supercoin": [
+   "ZARsc",
+   "ZAR Supercoin"
+  ],
+  "zaru-blocktower": [
+   "ZARU",
+   "ZAR Universal"
+  ],
+  "zchf-frankencoin": [
+   "ZCHF",
+   "Frankencoin"
+  ],
+  "zsd-zephyr-protocol": [
+   "ZSD",
+   "Zephyr Stable Dollar"
+  ]
+ },
+ "funds": {
+  "buidl-blackrock": [
+   "BUIDL",
+   "BlackRock USD Institutional Digital Liquidity Fund"
+  ],
+  "eutbl-spiko": [
+   "EUTBL",
+   "Spiko EU T-Bills Money Market Fund"
+  ],
+  "jaaa-janus-henderson-anemoy": [
+   "JAAA",
+   "Janus Henderson Anemoy AAA CLO Fund"
+  ],
+  "jtrsy-anemoy": [
+   "JTRSY",
+   "Janus Henderson Anemoy Treasury Fund"
+  ],
+  "mf-one-midas": [
+   "mF-ONE",
+   "Midas mF-ONE"
+  ],
+  "mglobal-midas-fasanara": [
+   "mGLOBAL",
+   "Midas Fasanara Global"
+  ],
+  "onyc-onre": [
+   "ONyc",
+   "Onchain Yield Coin"
+  ],
+  "reusd-re-protocol": [
+   "reUSD",
+   "Re Protocol reUSD"
+  ],
+  "thbill-theo": [
+   "thBILL",
+   "Theo thBILL"
+  ],
+  "ustb-superstate": [
+   "USTB",
+   "Invesco Short Duration US Government Securities Fund"
+  ],
+  "ustbl-spiko": [
+   "USTBL",
+   "Spiko US T-Bills Money Market Fund"
+  ],
+  "usyc-hashnote": [
+   "USYC",
+   "Circle USYC"
+  ],
+  "vbill-vaneck": [
+   "VBILL",
+   "VanEck Treasury Fund"
+  ]
+ },
+ "yard": {
+  "aed-rakbank": [
+   "AED-RAKBANK",
+   "RAKBank AED Stablecoin"
+  ],
+  "aedz-zand": [
+   "AEDZ",
+   "Zand AED"
+  ],
+  "arc-anq": [
+   "ARC",
+   "ARC"
+  ],
+  "bils-bitsofgold": [
+   "BILS",
+   "BILS"
+  ],
+  "brd-volpon": [
+   "BRD",
+   "BRD Stablecoin"
+  ],
+  "brl-b3": [
+   "BRL-B3",
+   "B3 BRL Stablecoin"
+  ],
+  "brl-itau": [
+   "BRL-ITAU",
+   "Itau Unibanco BRL Stablecoin"
+  ],
+  "btd-alpen": [
+   "BTD",
+   "Alpen Bitcoin Dollar"
+  ],
+  "chfs-safirum": [
+   "CHF-S",
+   "CHF-S"
+  ],
+  "czkc-czkc": [
+   "CZKC",
+   "CZKC Czech Koruna"
+  ],
+  "ddsc-aedc": [
+   "DDSC",
+   "DDSC"
+  ],
+  "dotusd-polkadot": [
+   "dotUSD",
+   "dotUSD"
+  ],
+  "ejpy-jbfd": [
+   "EJPY",
+   "EJPY"
+  ],
+  "eur-qivalis": [
+   "EURqi",
+   "Qivalis Euro"
+  ],
+  "eurdt-stabillon": [
+   "EURdt",
+   "StaBillon EUR"
+  ],
+  "eurgh-gatehub": [
+   "EURGH",
+   "GateHub Euro"
+  ],
+  "eurod-oddo-bhf": [
+   "EUROD",
+   "ODDO BHF EUROD"
+  ],
+  "eurpa-gr8-pay": [
+   "EUR.PA",
+   "GR8 Pay EUR PARITY"
+  ],
+  "eurr-revolut": [
+   "EURR",
+   "Revolut Euro"
+  ],
+  "eursm-stable-mint": [
+   "EURSM",
+   "Stable Mint EUR"
+  ],
+  "eurxt-caceis": [
+   "EURXT",
+   "Euro eXchange Token"
+  ],
+  "eury-eurodollar": [
+   "EURY",
+   "Eurodollar EURY"
+  ],
+  "fiusd-fiserv": [
+   "FIUSD",
+   "Fiserv USD"
+  ],
+  "gbp-vvtx": [
+   "GBP-VVTX",
+   "VVTX GBP stablecoin"
+  ],
+  "gbpq-quantoz": [
+   "GBPQ",
+   "Quantoz GBPQ"
+  ],
+  "gelt-tether": [
+   "GEL₮",
+   "Tether Georgian Lari Stablecoin"
+  ],
+  "gynusd-gyndore": [
+   "gynUSD",
+   "Gyndore"
+  ],
+  "heur-heuro": [
+   "HEUR",
+   "HEURO"
+  ],
+  "hkd-hsbc": [
+   "RCHKD",
+   "HSBC RedCoin"
+  ],
+  "hkdap-anchorpoint": [
+   "HKDAP",
+   "HKDAP"
+  ],
+  "hkdr-rd-technologies": [
+   "HKDR",
+   "RD Technologies HKDR"
+  ],
+  "jpy-megabank-consortium": [
+   "JPY-MEGABANKS",
+   "Japan Megabank JPY Stablecoin"
+  ],
+  "jpydf-deltaforesight": [
+   "JPYdf",
+   "JPYdf"
+  ],
+  "klarnausd-klarna": [
+   "KLARNAUSD",
+   "KlarnaUSD"
+  ],
+  "krw-imbank": [
+   "KRW-iM",
+   "iM Bank KRW Stablecoin"
+  ],
+  "krw-kb-kookmin": [
+   "KRW-KB",
+   "KB Kookmin KRW stablecoin"
+  ],
+  "krw1-bdacs": [
+   "KRW1",
+   "BDACS KRW1"
+  ],
+  "kusd-kerne": [
+   "kUSD",
+   "Kerne USD"
+  ],
+  "net-cloudflare": [
+   "NET",
+   "NET Dollar"
+  ],
+  "okrw-hashed": [
+   "OKRW",
+   "OKRW"
+  ],
+  "pgold-polaris": [
+   "GOLDp",
+   "Polaris GOLDp"
+  ],
+  "plndt-stabillon": [
+   "PLNdt",
+   "StaBillon PLN"
+  ],
+  "plnq-quantoz": [
+   "PLNQ",
+   "Quantoz PLNQ"
+  ],
+  "plny-eurodollar": [
+   "PLNY",
+   "Eurodollar PLNY"
+  ],
+  "pusd-polaris": [
+   "USDp",
+   "Polaris USDp"
+  ],
+  "rd-rai-dollar": [
+   "RD",
+   "RAI Dollar"
+  ],
+  "rdusd-rd-technologies": [
+   "RDUSD",
+   "RDUSD"
+  ],
+  "regbp-restabilise": [
+   "reGBP",
+   "ReStabilise reGBP"
+  ],
+  "rgbp-revolut": [
+   "GBPR",
+   "Revolut GBP Stablecoin"
+  ],
+  "ronq-quantoz": [
+   "RONQ",
+   "Quantoz RONQ"
+  ],
+  "rusd-revolut": [
+   "USDR",
+   "Revolut USD Stablecoin"
+  ],
+  "sekau-allunity": [
+   "SEKAU",
+   "AllUnity SEKAU"
+  ],
+  "squsd-squads": [
+   "SQUSD",
+   "Squads USD"
+  ],
+  "tgld-tenbin": [
+   "tGLD",
+   "Tenbin Gold"
+  ],
+  "thgold-theo": [
+   "THGOLD",
+   "Theo thGOLD"
+  ],
+  "usd-bank-consortium": [
+   "USD-CONSORTIUM",
+   "Bank Consortium USD Stablecoin"
+  ],
+  "usd-dinari": [
+   "USD+",
+   "Dinari USD+"
+  ],
+  "usdau-allunity": [
+   "USDAU",
+   "AllUnity USD"
+  ],
+  "usdf-flipcash": [
+   "USDF",
+   "Flipcash USDF"
+  ],
+  "usdpa-gr8-pay": [
+   "USD.PA",
+   "GR8 Pay USD PARITY"
+  ],
+  "usdvb-versabank": [
+   "VUSD",
+   "VersaBank VUSD"
+  ],
+  "usdy-eurodollar": [
+   "USDY",
+   "Eurodollar USDY"
+  ],
+  "ustx-tx": [
+   "USTX",
+   "USTX"
+  ],
+  "verusd-verona": [
+   "verUSD",
+   "Verona USD"
+  ],
+  "weur-aplauz": [
+   "WEUR",
+   "Aplauz WEUR"
+  ],
+  "zlusd-zelle": [
+   "ZLUSD",
+   "ZelleUSD"
+  ]
+ }
+}

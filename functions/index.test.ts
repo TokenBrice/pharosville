@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { RUNTIME_ACTIVE_STABLECOINS, RUNTIME_TRACKED_STABLECOINS } from "../shared/lib/stablecoins/runtime-registry";
+import listingPolicy from "../shared/data/stablecoins/listing-policy.json";
+import socialCards from "../shared/data/stablecoins/social-cards.json";
 import { CHAIN_META } from "../shared/lib/chains";
 import { canonicalSubjectUrl, parseSubjectUrl, subjectToPick } from "../shared/lib/selection-link";
 import { PANEL_LANDMARKS } from "../src/harbour/ui/facts";
@@ -154,7 +155,9 @@ function titleText(html: string): string | null {
   return /<title>([\s\S]*?)<\/title>/.exec(html)?.[1] ?? null;
 }
 
-const A_KNOWN_SHIP = RUNTIME_ACTIVE_STABLECOINS[0]!;
+const CORE_SHIPS = Object.entries(socialCards.core as Record<string, readonly string[]>).map(([id, [symbol, name]]) => ({ id, symbol: symbol!, name: name! }));
+const FUND_SHIPS = Object.entries(socialCards.funds as Record<string, readonly string[]>).map(([id, [symbol, name]]) => ({ id, symbol: symbol!, name: name! }));
+const A_KNOWN_SHIP = CORE_SHIPS.find((c) => c.id === "usdt-tether") ?? CORE_SHIPS[0]!;
 
 describe("PharosVille social card route", () => {
   afterEach(() => {
@@ -185,9 +188,9 @@ describe("PharosVille social card route", () => {
       expect(socialCardForSelection("lighthouse")?.url).toContain("sel=place.pharos");
     });
 
-    it("round trips every static place, chain and registry yard identity to the client", () => {
-      const yard = RUNTIME_TRACKED_STABLECOINS.filter((coin) => coin.status === "pre-launch").map((coin) => `yard.${coin.id}`);
-      expect(yard.length).toBeGreaterThan(0);
+    it("round trips every static place, chain and synced yard identity to the client", () => {
+      const yard = Object.keys(socialCards.yard).map((id) => `yard.${id}`);
+      expect(yard.length).toBeGreaterThanOrEqual(40);
       for (const raw of [...PANEL_LANDMARKS].map((id) => `place.${id}`).concat(Object.keys(CHAIN_META).map((id) => `chain.${id}`), yard, [`ship.${A_KNOWN_SHIP.id}`, "lighthouse"])) {
         const card = socialCardForSelection(raw);
         expect(card, raw).not.toBeNull();
@@ -195,6 +198,23 @@ describe("PharosVille social card route", () => {
         expect(canonicalSubjectUrl(link.subject)).toBe(card!.url);
         expect(subjectToPick(link.subject!).id).not.toBe("");
         expect(card!.subjectLine).toMatch(/^Shared subject: .+\.$/);
+      }
+    });
+
+    it("describes all synced tokenized funds in Reserve Anchorage and suppresses off-water Policy 2.0 classes", () => {
+      expect(listingPolicy.fundIds.length).toBeGreaterThanOrEqual(10);
+      for (const fid of listingPolicy.fundIds) {
+        const card = socialCardForSelection(`ship.${fid}`);
+        expect(card, fid).not.toBeNull();
+        expect(card!.description, fid).toContain("Reserve Anchorage");
+        expect(card!.description, fid).toContain("tokenized fund");
+        expect(card!.description, fid).not.toContain("peg risk");
+      }
+      for (const id of [...listingPolicy.variantIds, ...listingPolicy.reviewHoldIds, ...listingPolicy.excludedIds, ...listingPolicy.frozenIds]) {
+        expect(socialCardForSelection(`ship.${id}`), id).toBeNull();
+      }
+      for (const id of listingPolicy.excludedIds) {
+        expect(socialCardForSelection(`yard.${id}`), `yard.${id}`).toBeNull();
       }
     });
 
@@ -206,13 +226,14 @@ describe("PharosVille social card route", () => {
       }
     });
 
-    it("names every active ship without ever repeating a symbol twice", () => {
-      const sameNameAndSymbol = RUNTIME_ACTIVE_STABLECOINS.find((coin) => coin.name === coin.symbol);
+    it("names every active core and fund ship without ever repeating a symbol twice", () => {
+      const all = [...CORE_SHIPS, ...FUND_SHIPS];
+      const sameNameAndSymbol = all.find((coin) => coin.name === coin.symbol);
       if (sameNameAndSymbol) {
         const card = socialCardForSelection(`ship.${sameNameAndSymbol.id}`)!;
         expect(card.description).not.toContain(`${sameNameAndSymbol.symbol} (${sameNameAndSymbol.symbol})`);
       }
-      for (const coin of RUNTIME_ACTIVE_STABLECOINS) {
+      for (const coin of all) {
         expect(socialCardForSelection(`ship.${coin.id}`), coin.id).not.toBeNull();
       }
     });
@@ -345,16 +366,17 @@ describe("PharosVille social card route", () => {
 
     it("escapes static identity text at the welcome hook exactly once", async () => {
       vi.stubGlobal("HTMLRewriter", FakeHtmlRewriter);
-      const name = A_KNOWN_SHIP.name;
+      const pair = (socialCards.core as Record<string, string[]>)[A_KNOWN_SHIP.id]!;
+      const name = pair[1];
       try {
-        A_KNOWN_SHIP.name = 'Test <coin> & "name"';
+        pair[1] = 'Test <coin> & "name"';
         const { context } = makeContext(`https://pharosville.pharos.watch/?sel=ship.${A_KNOWN_SHIP.id}`);
         const html = await (await onRequest(context)).text();
         const line = /id="pv-shared-subject">([^<]*)<\/p>/.exec(html)?.[1];
         expect(line).toContain('Shared subject: Test &lt;coin&gt; &amp; &quot;name&quot;');
         expect(line).not.toContain("<coin>");
         expect(line).not.toContain("&amp;lt;");
-      } finally { A_KNOWN_SHIP.name = name; }
+      } finally { pair[1] = name; }
     });
 
     it("carries no credential or environment value into the page", async () => {

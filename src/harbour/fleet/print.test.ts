@@ -6,7 +6,7 @@ import { HarbourMaterials } from "../world/materials";
 import type { EmblemAtlas } from "./emblems";
 import { createFleetMaterials, type FleetUniforms } from "./fleet-material";
 import { BUOY_EASE, BUOY_FAR_SCALE, BUOY_HIDE_PX, buoyScale, FleetSystem } from "./fleet-system";
-import { FLAG_AIR, FLAG_BURGEE, FLAG_DISTRESS, HouseFlags } from "./house-flags";
+import { FLAG_AIR, FLAG_BURGEE, FLAG_DISTRESS, FLAG_RESERVE, FLAG_STREAMER, HouseFlags } from "./house-flags";
 import { DYE_MAX_SAT, flagPigment } from "./livery";
 import { PRINT_FULL_PX, PRINT_HI, PRINT_SOFT_PX, printContrast } from "./shaders/print";
 
@@ -109,20 +109,35 @@ describe("flags in the harbour's pigment and air (E04, ruling V3)", () => {
 
   it("packs the highlight into the style, takes 0.6 of the air, exempts the distress signal and the highlighted hull", () => {
     const atlas = { texture: new THREE.Texture(), grid: new THREE.Vector4(32, 25, 1 / 32, 1 / 25), letterSlot: 640 } as unknown as EmblemAtlas;
-    const flags = new HouseFlags(createWorldUniforms(), atlas, 4);
+    const flags = new HouseFlags(createWorldUniforms(), atlas, 8);
     const brand = new THREE.Color(0.2, 0.3, 0.6);
     flags.add(0, 5, 0, 2, 0, 1, 12, 0, brand, FLAG_BURGEE);
     flags.add(0, 5, 0, 2, 0, 1, 12, 0, brand, FLAG_BURGEE, true);
     flags.add(0, 5, 0, 2, 0, 1, -1, 0, brand, FLAG_DISTRESS);
+    flags.add(0, 5, 0, 2, 0, 1, 20, 0, brand, FLAG_RESERVE);
+    flags.add(0, 5, 0, 2, 0, 1, 20, 0, brand, FLAG_RESERVE, true);
     const styles = flags.mesh.geometry.getAttribute("aBrand") as THREE.InstancedBufferAttribute;
-    expect([styles.getW(0), styles.getW(1), styles.getW(2)]).toEqual([FLAG_BURGEE, FLAG_BURGEE + 8, FLAG_DISTRESS]);
+    expect(FLAG_RESERVE).toBe(3);
+    expect([styles.getW(0), styles.getW(1), styles.getW(2), styles.getW(3), styles.getW(4)]).toEqual([
+      FLAG_BURGEE, FLAG_BURGEE + 8, FLAG_DISTRESS, FLAG_RESERVE, FLAG_RESERVE + 8,
+    ]);
     const material = flags.mesh.material as THREE.ShaderMaterial;
     expect(material.uniforms.uEmblemLetters.value).toBe(640);
     expect(material.fragmentShader).toContain("float hi = step(7.50, vBrand.w);");
-    expect(material.fragmentShader).toContain(`hbAerial(c, vec3(0.0), style > 1.5 ? 1.0 : max(${(1 - FLAG_AIR).toFixed(2)}, hi));`);
+    expect(material.fragmentShader).toContain("bool isDistress = style > 1.5 && style < 2.5;");
+    expect(material.fragmentShader).toContain("bool isReserve = style > 2.5 && style < 3.5;");
+    expect(material.fragmentShader).toContain(`hbAerial(c, vec3(0.0), isDistress ? 1.0 : max(${(1 - FLAG_AIR).toFixed(2)}, hi));`);
+    expect(material.fragmentShader).toContain("c = vec3(0.76, 0.67, 0.50);");
+    expect(material.fragmentShader).toContain("c = mix(c, vec3(0.26, 0.16, 0.06), bars);");
+    expect(material.fragmentShader).toContain("cx = 0.56; R = 0.22;");
+    // single shared emblem sampling block (not duplicated for reserve ensigns)
+    expect(material.fragmentShader.match(/texture2D\(uEmblems, uv\)/g)).toHaveLength(1);
     expect(material.fragmentShader).toContain("if (slot >= uEmblemLetters) {");
     // the device on the flag follows the same size law (its roundel's diameter in CSS px)
     expect(material.fragmentShader).toContain(`smoothstep(${PRINT_SOFT_PX.toFixed(2)}, ${PRINT_FULL_PX.toFixed(2)}, 2.0 * R / (ax * max(uFleetScreen.y, 0.25)))`);
+    // streamer ribbon deformation triggers only for FLAG_STREAMER (> 4.5), never FLAG_RESERVE (3)
+    expect(FLAG_STREAMER).toBe(5);
+    expect(material.vertexShader).toContain("bool isStreamer = aBrand.w - 8.00 * step(7.50, aBrand.w) > 4.5;");
     expect(material.vertexShader).toContain("hbAerialVert((modelMatrix * instanceMatrix * vec4(p, 1.0)).xyz);");
     flags.dispose();
   });

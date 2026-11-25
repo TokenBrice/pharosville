@@ -1,4 +1,4 @@
-import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-registry";
+import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-active-ids";
 import type { PanelEndpointKey } from "../../shared/lib/pharosville-panel-endpoints";
 import type { ProjectionJson } from "./_project";
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { BREATH_K, IDLE_AFTER_S, idleBreath, rankWatch, WATCH_MOVER_MIN_USD, type WatchCoin } from "./watch";
+import { buildHarbourModel } from "../model/build";
+import { makePayloads, PIERED, T0_MS } from "../sim/test-fixtures";
+import { BREATH_K, IDLE_AFTER_S, idleBreath, modelWatch, rankWatch, WATCH_MOVER_MIN_USD, type WatchCoin } from "./watch";
 
 const coin = (id: string, o: Partial<WatchCoin> = {}): WatchCoin => ({ id, symbol: id.toUpperCase(), supply: 1e9, activeDepeg: false, pegDeviationBps: 2, prevDay: 1e9, maiden: false, ...o });
 
@@ -64,5 +66,27 @@ describe("the watch visits landmarks when their readings are notable (D14/A15)",
     expect(rankWatch([], { fleet: false, peg: true }, all)).toEqual([]);
     expect(rankWatch([], { fleet: true, peg: false }, all).map((s) => s.reason)).toEqual(["pharos", "station"]);
     expect(rankWatch([], { fleet: true, peg: true }, {})).toEqual([]);
+  });
+
+  it("excludes tokenized funds from modelWatch mover stops even when their 24 h AUM swing exceeds core coins", () => {
+    const p = makePayloads({
+      coins: [
+        {
+          id: "usdc-circle", name: "USD Coin", symbol: "USDC", pegType: "peggedUSD",
+          circulating: { peggedUSD: 10e9 }, circulatingPrevDay: { peggedUSD: 9.95e9 },
+          chainCirculating: { Ethereum: { current: 10e9 } }, chains: ["Ethereum"],
+        },
+        {
+          id: "buidl-blackrock", name: "BlackRock BUIDL", symbol: "BUIDL", pegType: "peggedUSD",
+          circulating: { peggedUSD: 2.5e9 }, circulatingPrevDay: { peggedUSD: 1.5e9 },
+          chainCirculating: { Ethereum: { current: 2.5e9 } }, chains: ["Ethereum"],
+        },
+      ],
+    });
+    const m = buildHarbourModel(p, T0_MS, { pieredChains: PIERED, dead: [] });
+    const stops = modelWatch(m, T0_MS);
+    const mover = stops.find((s) => s.reason === "mover");
+    expect(mover?.id).toBe("usdc-circle");
+    expect(stops.some((s) => s.id === "buidl-blackrock")).toBe(false);
   });
 });

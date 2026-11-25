@@ -8,7 +8,8 @@ import { useFrame, useFrameWrite, usePresence, useStore, useSticky, useUI } from
 import { getFeed, getLayout, sameHit, type PickHit, type ScreenPoint } from "./services";
 import { devicePx, setStyle, tagPlacement, useMeasurements } from "./measurements";
 import { LANDMARK_ENDPOINT } from "../readings/bind";
-import type { EndpointKey } from "../model/types";
+import { isTokenizedFund, type EndpointKey } from "../model/types";
+import { money } from "./format";
 import { Freshness } from "./bits";
 import { observedEmpty, qualificationCopy } from "./source-state";
 
@@ -67,17 +68,22 @@ function Tag({ hit, shown, pinned, overlayRef }: { overlayRef?: RefObject<LabelB
     setStyle(el, "transform", next.anchor);
   });
 
-  let name = "", fact = "", decorative = false, swatch: string | null = null;
+  let name = "", fact = "", badge = "", decorative = false, swatch: string | null = null;
   if (hit.kind === "boat") {
     const b = store.boat(hit.id);
     if (b) {
       name = b.symbol;
       const w = store.whereaboutsOf(b.id);
-      fact = boatFact(b, w).slice(b.symbol.length + 3);
-      // a coin launched during this visit sails dressed overall for her first circuit (fleet/bunting.ts)
-      if (!b.maiden && store.ctx.services.get("bunting")?.isDressed?.(b.id)) fact += ` · ${LAUNCH_HOVER}`;
+      if (isTokenizedFund(b)) {
+        badge = "Tokenized fund · not a stablecoin";
+        fact = `${money(b.supply)} · in Reserve Anchorage`;
+      } else {
+        fact = boatFact(b, w).slice(b.symbol.length + 3);
+        // a coin launched during this visit sails dressed overall for her first circuit (fleet/bunting.ts)
+        if (!b.maiden && store.ctx.services.get("bunting")?.isDressed?.(b.id)) fact += ` · ${LAUNCH_HOVER}`;
+        decorative = w.kind === "outing";
+      }
       swatch = b.brandColor;
-      decorative = w.kind === "outing";
     }
   } else if (hit.kind === "wreck") {
     const r = deadSummaries().get(hit.id);
@@ -109,9 +115,9 @@ function Tag({ hit, shown, pinned, overlayRef }: { overlayRef?: RefObject<LabelB
   useLayoutEffect(() => () => { store.holdHover(false); if (overlayRef) overlayRef.current.visible = false; }, [store, overlayRef]);
   useLayoutEffect(() => {
     measurements.invalidate(ref.current?.firstElementChild as HTMLElement | null);
-  }, [measurements, name, fact, swatch]);
+  }, [measurements, name, fact, badge, swatch]);
   if (!name) return null;
-  const extraSources: Record<string, EndpointKey> = { chartroom: "stability", mint: "mintBurn", burn: "mintBurn", "tide-board": "mintBurn", harbourmaster: "chains", "far-ports": "stablecoins" };
+  const extraSources: Record<string, EndpointKey> = { chartroom: "stability", mint: "mintBurn", burn: "mintBurn", "tide-board": "mintBurn", harbourmaster: "chains", "far-ports": "stablecoins", warehouse: "stablecoins", "reserve-anchorage": "stablecoins" };
   const primary = hit.kind === "landmark" ? LANDMARK_ENDPOINT[hit.id as keyof typeof LANDMARK_ENDPOINT] ?? extraSources[hit.id] : undefined;
   const sources: EndpointKey[] = hit.kind === "boat" ? ["stablecoins"] : hit.kind === "harbour" ? ["stablecoins", "chains"]
     : primary === "pegSummary" || primary === "stress" ? [primary, "stablecoins"] : primary ? [primary] : [];
@@ -122,6 +128,7 @@ function Tag({ hit, shown, pinned, overlayRef }: { overlayRef?: RefObject<LabelB
       <div className="hb-tag hb-paper" >
         {swatch && <span className="hb-tag-swatch" style={{ background: swatch }} />}
         <span className="hb-tag-name">{name}</span>
+        {badge && <span className="hb-pill hb-sc">{badge}</span>}
         {fact && <span className={`hb-tag-fact hb-num${decorative ? " decorative" : ""}`}>{fact}</span>}
         {sources.length > 0 && <div style={{ flexBasis: "100%" }}>{sources.map((source) => <Freshness key={source} model={model} source={source} />)}</div>}
         {hit.kind === "landmark" && hit.id === "storm-mast" && model?.readings.stormCones?.count === 0 && <span>{observedEmpty(model, "alerts")}</span>}

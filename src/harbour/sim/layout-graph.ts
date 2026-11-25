@@ -11,7 +11,7 @@ import { slotFootprint } from "./footprint";
 export const CLASS_ORDER: readonly HullClass[] = ["flagship", "large", "medium", "small", "boat", "skiff"];
 export const DEFAULT_LOA: Record<HullClass, number> = { flagship: 26, large: 18, medium: 13, small: 10, boat: 7.5, skiff: 5 };
 
-export type SlotKind = "berth" | "mooring" | "far" | "raft" | "shoals" | "wreck";
+export type SlotKind = "berth" | "mooring" | "far" | "raft" | "shoals" | "wreck" | "reserve";
 
 export interface Slot {
   index: number;
@@ -279,6 +279,8 @@ export interface SimLayout {
   /** pools.get(where)?.get(cls) → slot indices. */
   pools: Map<string, Map<HullClass, number[]>>;
   shoals: number[];
+  /** Reserve Anchorage: tokenized funds anchored quietly off the Bonded Warehouse headland. */
+  reserve: number[];
   /** Wreck Cove: authored hulks first (beached), then the boneyard along the same strand. */
   wrecks: number[];
   /** Slipway launch polyline (x,z), or null. */
@@ -333,6 +335,7 @@ function stillHullDisks(layout: HarbourLayout, loa: Record<HullClass, number>): 
     }
   }
   for (const sl of layout.zones?.shoals?.slots ?? []) disks.push([sl[0], sl[2], 3 + loa.medium / 2 + 1.5]);
+  for (const sl of layout.zones?.reserveAnchorage?.slots ?? []) disks.push([sl[0], sl[2], 2.5 + loa.large / 2 + 1.5]);
   return disks;
 }
 
@@ -412,7 +415,7 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
   const add = (s: Omit<Slot, "index" | "conflicts" | "warp" | "line"> & { warp?: Vec2 | null; line?: Vec2 | null }) => {
     const slot: Slot = { warp: null, line: null, ...s, conflicts: [], index: slots.length };
     slots.push(slot);
-    if (s.kind === "shoals" || s.kind === "wreck") return slot;
+    if (s.kind === "shoals" || s.kind === "wreck" || s.kind === "reserve") return slot;
     let byCls = pools.get(s.where);
     if (!byCls) pools.set(s.where, (byCls = new Map()));
     let list = byCls.get(s.cls);
@@ -436,7 +439,7 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
       ap[ap.length - 1] = [cx, cz];
       if (inNode >= 0 && hypot(ap[0][0] - start[0], ap[0][1] - start[1]) > 1) ap.unshift(start);
     }
-    return add({ id, where, cls, kind, x: px, z: pz, heading: h, swing, inNode, outNode, approach: ap, astern: false, mode: kind === "shoals" ? "anchor" : "swing" });
+    return add({ id, where, cls, kind, x: px, z: pz, heading: h, swing, inNode, outNode, approach: ap, astern: false, mode: kind === "shoals" || kind === "reserve" ? "anchor" : "swing" });
   };
 
   /**
@@ -638,6 +641,18 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
     }
   }
 
+  // Reserve Anchorage: tokenized funds anchored quietly in the northeastern bay off the Bonded Warehouse
+  const resZone = zones.reserveAnchorage as ({ gate?: string } & NonNullable<typeof zones.reserveAnchorage>) | undefined;
+  const resIn = zoneGate(resZone, "gate-in:reserve"), resOut = zoneGate(resZone, "gate-out:reserve");
+  const reserve: number[] = [];
+  (zones.reserveAnchorage?.slots ?? []).forEach((s, i) => {
+    const inN = resIn >= 0 ? resIn : nearestNode(graph, s[0], s[2]);
+    const outN = resOut >= 0 ? resOut : inN;
+    const [ax, az] = offShore(s[0], s[2], 2.5, "large");
+    const slot = swingSlot(`reserve/${String(i + 1).padStart(2, "0")}`, "reserve", "large", "reserve", ax, az, 2.5, inN, outN);
+    reserve.push(slot.index);
+  });
+
   // Wreck Cove: hulks lie beached on the strand (half in the water), never in open water or the trees
   const wrecks: number[] = [];
   const wreckAt = (id: string, cls: HullClass, x: number, z: number, h: number) => {
@@ -748,7 +763,7 @@ export function buildSimLayout(layout: HarbourLayout, coast: CoastGrid | null = 
   const pharos: Vec2 | null = ph ? [ph[0], ph[2]] : null;
   const pc = layout.camera?.panClamp;
   const view: SimLayout["view"] = pc ? [pc.min[0], pc.min[1], pc.max[0], pc.max[1]] : null;
-  return { graph, windFrom, field, keepOff, hard, slots, pools, shoals, wrecks, launchPath: launch && launch.length >= 2 ? launch.map((q) => [q[0], q[1]] as Vec2) : null, loa, beam, pierChains, whereOf, gates, pharos, view };
+  return { graph, windFrom, field, keepOff, hard, slots, pools, shoals, reserve, wrecks, launchPath: launch && launch.length >= 2 ? launch.map((q) => [q[0], q[1]] as Vec2) : null, loa, beam, pierChains, whereOf, gates, pharos, view };
 }
 
 const LANE_SEGS = new WeakMap<SimLayout, Float64Array>();

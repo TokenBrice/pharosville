@@ -10,8 +10,8 @@ Regenerate with `npm run docs:runtime-facts`; verify with `npm run check:runtime
 - World: The Harbour, one three.js WebGL2 Engine (`src/harbour/engine/`) mounted by `src/harbour/app/harbour-app.tsx`
 - Renderer failure fallback: the first-paint poster stays up with the arrival guide and Pharos links; no alternate renderer
 - Runtime media namespace: `/harbour/`
-- Latest app version: `v1.11.0` (`titansAndWakes`)
-- Latest changelog entry: `2026-11-21-titans-and-wakes` / `v1.11.0` / 2026-11-21 / Titans and Wakes
+- Latest app version: `v1.12.0` (`reserveAnchorage`)
+- Latest changelog entry: `2026-11-25-reserve-anchorage` / `v1.12.0` / 2026-11-25 / Reserve Anchorage
 
 ## Viewport Gate
 

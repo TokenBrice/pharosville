@@ -1,22 +1,28 @@
 import type { ServiceMap, Services } from "../engine/services";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EngineContext, PreparationService } from "../engine/types";
+import type { EngineContext, FrameState, PreparationService } from "../engine/types";
+import { createWorldUniforms } from "../engine/uniforms";
 import type { Boat, HarbourModel } from "../model/types";
-import type { HarbourSim } from "../sim/sim";
+import { PH_ANCHORED, PH_MOORED, type HarbourSim } from "../sim/sim";
+import type { EmblemAtlas } from "./emblems";
 import { FleetSystem } from "./fleet-system";
+import { FLAG_RESERVE, HouseFlags } from "./house-flags";
 import type { HullVariant, Kit } from "./hull-kit";
+import { RidingLights } from "./riding-lights";
+import { FLEET_DATA_TEXELS } from "./shaders/pose";
 import { indexVariants, sternLampLit } from "./variants";
 
 type SimSlot = HarbourSim["layout"]["slots"][number];
 interface RecordHarness {
   id: string; source: Boat; inst: number; slot: number; variant: HullVariant; geomCur: number; geomFull: number; geomLod: number; geomWreck: number;
-  scale: number; loa: number; beam: number; top: number; visualRadius: number; wrecked: boolean; brand: THREE.Color;
+  scale: number; loa: number; beam: number; top: number; visualRadius: number; wrecked: boolean; brand: THREE.Color; flagBrand: THREE.Color;
   swing: number; heel: number; hi: number; px: number; pz: number; vx: number; vz: number; flag: number; struck: boolean; posed: boolean;
   swell: Float64Array; bollardSlot: SimSlot | null; bow: [number, number, number] | null; reading: boolean; lit: boolean;
+  titan: boolean; reserve: boolean;
 }
 interface FleetHarness {
-  mesh: THREE.BatchedMesh; boats: RecordHarness[]; byId: Map<string, RecordHarness>; paint: Float32Array;
+  mesh: THREE.BatchedMesh; boats: RecordHarness[]; byId: Map<string, RecordHarness>; paint: Float32Array; data: Float32Array;
   modelRevision: number; needsFullPose: boolean;
   uniforms: { uFleetPaint: THREE.IUniform<THREE.DataTexture>; uFleetData: THREE.IUniform<THREE.DataTexture> };
   buildMesh(ctx: EngineContext, n: number): void;
@@ -36,7 +42,7 @@ const coin = (id: string, patch: Partial<Boat> = {}): Boat => ({
 function model(boats: Boat[], wrecks: HarbourModel["readings"]["wrecks"] = []): HarbourModel {
   return { boats, hasFleet: true, readings: { wrecks } } as HarbourModel;
 }
-function fixture() {
+function fixture(withTitan = false) {
   const geometry = new THREE.BoxGeometry(10, 8, 2);
   const variant = (id: string, family: string, cls: string, loa: number): HullVariant => ({
     id, family, cls, loa, beam: 2, full: geometry, lod: geometry, top: 8,
@@ -44,8 +50,10 @@ function fixture() {
     sternLantern: new THREE.Vector3(-4, 2, 0), oars: false,
   });
   const usd = variant("usd_boat", "usd", "boat", 10), eur = variant("eur_large", "eur", "large", 18);
+  const hulls = new Map([[usd.id, usd], [eur.id, eur]]);
+  if (withTitan) hulls.set("titan_usdt", variant("titan_usdt", "usd", "flagship", 32));
   const kit: Kit = {
-    manifest: { hulls: [], props: [] }, hulls: new Map([[usd.id, usd], [eur.id, eur]]),
+    manifest: { hulls: [], props: [] }, hulls,
     props: new Map(["wreck_a", "wreck_b", "wreck_c", "mooring_buoy"].map((id) => [id, { geometry, loa: 10, nodes: [] }])),
   };
   const ctx = { scene: new THREE.Scene(), services: new Map<string, unknown>() as Services } as unknown as EngineContext;
@@ -294,5 +302,134 @@ describe("bounded fleet installation", () => {
     controller.abort(); await q.step(); await rejected;
     expect(f.remove).toHaveBeenCalledExactlyOnceWith(allocated); expect(old.source).toBe(source);
     expect(f.fleet.boats).toEqual([old]); expect(f.atlas.begin).not.toHaveBeenCalled();
+  });
+});
+
+describe("reserve vessels (tokenized funds)", () => {
+  it("paints un-dyed canvas, blocks titan assignment, keeps stern lamps dark, and repaints cleanly on class flips", async () => {
+    const f = fixture(true);
+
+    const fund = coin("usdt-tether", {
+      listingClass: "tokenized-fund",
+      state: "reserve",
+      brandColor: "#2255AA",
+      nullPeg: false,
+    });
+    await f.install(model([fund]));
+    const rec = f.fleet.byId.get("usdt-tether")!;
+    expect(rec.reserve).toBe(true);
+    expect(rec.titan).toBe(false);
+    expect(rec.variant.id).toBe(f.usd.id);
+    expect(rec.reading).toBe(false);
+    expect(rec.lit).toBe(false);
+    // Sail dye texel 4 is mode 0 (plain un-dyed woven flax canvas), while brand stays the fund's own colour
+    expect(Array.from(f.fleet.paint.slice(rec.inst * 20 + 16, rec.inst * 20 + 20))).toEqual([0, 0, 0, 0]);
+    expect(rec.brand.equals(new THREE.Color("#2255AA"))).toBe(true);
+    expect(f.paint).toHaveBeenCalledWith("usdt-tether", "usd", null);
+
+    // Reading-only refresh hits the fast path without repainting
+    f.clear();
+    await f.install(model([{ ...fund, supply: 9999 }]));
+    expect(f.paint).not.toHaveBeenCalled();
+
+    // Flipping back to core stablecoin breaks the fast path, restores titan + dyed sails + peg reading
+    f.clear();
+    await f.install(model([coin("usdt-tether", { listingClass: "core-stablecoin", state: "moored", brandColor: "#2255AA", nullPeg: false })]));
+    expect(rec.reserve).toBe(false);
+    expect(rec.titan).toBe(true);
+    expect(rec.variant.id).toBe("titan_usdt");
+    expect(rec.reading).toBe(true);
+    expect(f.fleet.paint[rec.inst * 20 + 19]).toBeGreaterThan(0);
+
+    // Flipping back to reserve clears titan, sail dye, and peg reading cleanly
+    f.clear();
+    await f.install(model([fund]));
+    expect(rec.reserve).toBe(true);
+    expect(rec.titan).toBe(false);
+    expect(rec.variant.id).toBe(f.usd.id);
+    expect(rec.reading).toBe(false);
+    expect(rec.lit).toBe(false);
+    expect(Array.from(f.fleet.paint.slice(rec.inst * 20 + 16, rec.inst * 20 + 20))).toEqual([0, 0, 0, 0]);
+  });
+
+  it("hoists FLAG_RESERVE (never distress or streamer), writes raw-linen cover tint, and keeps night lanterns unlit", async () => {
+    const f = fixture();
+    const fund = coin("buidl-blackrock", {
+      listingClass: "tokenized-fund",
+      state: "reserve",
+      brandColor: "#1E5EFF",
+      nullPeg: false,
+    });
+    await f.install(model([fund]));
+    const rec = f.fleet.byId.get("buidl-blackrock")!;
+
+    const uniforms = createWorldUniforms();
+    uniforms.uWindowGlow.value = 1;
+    const flags = new HouseFlags(uniforms, { texture: new THREE.Texture(), grid: new THREE.Vector4(32, 1, 1 / 32, 1) } as unknown as EmblemAtlas, 16);
+    const riding = new RidingLights(uniforms, 16);
+    cleanups.push(() => { flags.dispose(); riding.dispose(); });
+
+    const camera = new THREE.PerspectiveCamera(45, 1.5, 1, 20000);
+    camera.position.set(0, 40, 80); camera.lookAt(0, 0, 0); camera.updateMatrixWorld(true);
+    const sim = {
+      resumeHolding: false,
+      slotOf: () => ({ kind: "shoals", swing: 5 }), // even if slotOf reported shoals, reserve vessels never hoist distress
+      wind: { displayFromRad: -1, strength: 0.35 },
+      layout: { slots: [{ kind: "reserve", swing: 5, x: 0, z: 0 }] },
+      pose: {
+        count: 1, ids: ["buidl-blackrock"], position: [0, 0, 0], heading: [0], phase: [PH_ANCHORED],
+        sailState: [0], heel: [0], slot: [0], lines: [1], event: [0], drift: [0, 0], pitch: [0], outing: [0],
+      },
+    };
+    const wake = { stamp: vi.fn() };
+    const ctx = {
+      camera, renderer: { domElement: { clientHeight: 600 }, getPixelRatio: () => 1 }, rig: { distance: 100 }, uniforms,
+      services: new Map<string, unknown>([
+        ["model", { boats: [fund], truth: { stablecoins: { state: "current" }, pegSummary: { state: "current" } } }],
+        ["sim", sim],
+        ["ocean", { heightAt: () => 0, hullHeights: (_x: number, _z: number, _bx: number, _bz: number, _px: number, _pz: number, out: Float64Array) => { out.fill(0); } }],
+        ["wake", wake],
+        ["motion", { reduced: false, still: false, subscribe: () => () => {} }],
+      ]) as Services,
+    } as unknown as EngineContext;
+    const lines = { begin: vi.fn(), add: vi.fn(), throwLine: vi.fn(), end: vi.fn(), lines: 0 };
+    Object.assign(f.system, { flags, riding, lines, logosAsked: true, coveState: "done" });
+
+    const frame: FrameState = { delta: 1 / 60, elapsed: 2, nowMs: 0 };
+    f.system.update(frame, ctx);
+
+    // Exactly one flag hoisted: FLAG_RESERVE (never distress, never streamer)
+    expect(flags.mesh.count).toBe(1);
+    const brandAttr = flags.mesh.geometry.getAttribute("aBrand") as THREE.InstancedBufferAttribute;
+    expect(brandAttr.getW(0)).toBe(FLAG_RESERVE);
+    // Flag carries the fund's own earth-pigment brand colour for its hoist stripe
+    expect(brandAttr.getX(0)).toBeCloseTo(rec.flagBrand.r, 5);
+    expect(brandAttr.getY(0)).toBeCloseTo(rec.flagBrand.g, 5);
+    expect(brandAttr.getZ(0)).toBeCloseTo(rec.flagBrand.b, 5);
+
+    // Furled sail cover RGB in uFleetData texel 1 is calm raw linen (#D8CCB4), NOT the bright blue brand
+    const linen = new THREE.Color("#D8CCB4");
+    const off = rec.inst * FLEET_DATA_TEXELS * 4;
+    expect(f.fleet.data[off + 4]).toBeCloseTo(linen.r, 5);
+    expect(f.fleet.data[off + 5]).toBeCloseTo(linen.g, 5);
+    expect(f.fleet.data[off + 6]).toBeCloseTo(linen.b, 5);
+
+    // Stern lantern glass and analytical riding lights stay dark at night
+    expect(f.fleet.data[(rec.inst * FLEET_DATA_TEXELS + 2) * 4 + 2]).toBe(0);
+    expect(riding.count).toBe(0);
+
+    // Anchor rode enters the water cleanly for reserve slot (ay = bob - 0.1)
+    expect(lines.add).toHaveBeenCalledTimes(1);
+    expect(lines.add.mock.calls[0][1]).toBeLessThan(0);
+
+    // Soft contact ring (calm contactK ~ 0.3), never shoals breaking surf (> 1.0)
+    expect(wake.stamp).toHaveBeenCalledTimes(1);
+    expect(wake.stamp.mock.calls[0][5]).toBeLessThan(0.5);
+
+    // Also test normal moored phase
+    sim.pose.phase[0] = PH_MOORED;
+    f.system.update(frame, ctx);
+    expect(flags.mesh.count).toBe(1);
+    expect(brandAttr.getW(0)).toBe(FLAG_RESERVE);
   });
 });

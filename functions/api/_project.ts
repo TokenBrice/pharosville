@@ -1,5 +1,5 @@
 import { datedObservations, validObservationDate } from "../../shared/lib/dated-observations";
-import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-registry";
+import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-active-ids";
 import type { PharosVilleApiEndpointKey } from "../../shared/types/pharosville-endpoint-keys";
 
 /** JSON.parse has already checked the wire format, not an upstream schema. */
@@ -26,7 +26,7 @@ function projectStablecoins(payload: ProjectionJson): ProjectionJson {
     ...pick(payload, ["_meta"]) as JsonObject,
     peggedAssets: payload.peggedAssets.map((row) => {
       if (row === null || typeof row !== "object" || Array.isArray(row)) return row;
-      const coin = pick(row, ["id", "name", "symbol", "pegType", "chains", "circulating", "circulatingPrevDay", "circulatingPrevWeek", "circulatingPrevMonth", "chainCirculating"]) as JsonObject;
+      const coin = pick(row, ["id", "name", "symbol", "pegType", "chains", "circulating", "circulatingPrevDay", "circulatingPrevWeek", "circulatingPrevMonth", "chainCirculating", "frozen"]) as JsonObject;
       if (Object.hasOwn(row, "chainCirculating")) coin.chainCirculating = dictionary(row.chainCirculating, ["current"]);
       return coin;
     }),
@@ -80,8 +80,13 @@ function projectStress(payload: ProjectionJson): ProjectionJson {
 function projectSafetyGrades(payload: ProjectionJson): ProjectionJson {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload) || !Array.isArray(payload.grades)) return payload;
   return { ...pick(payload, ["_meta", "updatedAt", "methodologyVersion"]) as JsonObject, grades: payload.grades
-    .filter((row) => row === null || typeof row !== "object" || Array.isArray(row) || typeof row.id !== "string" || RUNTIME_ACTIVE_IDS.has(row.id))
-    .map((row) => pick(row, ["id", "grade"])) };
+    .filter((row) => {
+      if (row === null || typeof row !== "object" || Array.isArray(row) || typeof row.id !== "string") return true;
+      if (RUNTIME_ACTIVE_IDS.has(row.id)) return true;
+      // Preserve unsynced tokenized-fund not-rated rows so buildHarbourModel's live fallback catches newly added funds before weekly sync.
+      return row.ratingStatus === "not-rated" && typeof row.notRatedReason === "string" && row.notRatedReason.startsWith("tokenized-fund");
+    })
+    .map((row) => pick(row, ["id", "grade", "ratingStatus", "notRatedReason"])) };
 }
 
 function projectMintBurn(payload: ProjectionJson): ProjectionJson {

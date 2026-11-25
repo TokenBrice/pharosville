@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { resolveChainId } from "@shared/lib/chains";
 import { canonicalSubjectUrl, pickToSubject } from "@shared/lib/selection-link";
+import { isTokenizedFund } from "../../model/types";
 import { useUISlice } from "../hooks";
 
 export function PanelActions() {
@@ -32,10 +33,17 @@ export function PanelActions() {
 
 export function PanelOutbound() {
   const selected = useUISlice((s) => s.selected);
-  const directory = selected?.kind === "boat" ? ["stablecoins", "Stablecoins on Pharos analytics"]
-    : selected?.kind === "harbour" ? ["chains", "Chains on Pharos analytics"] : null;
-  if (!directory) return null;
-  return <p className="hb-caption"><a className="hb-out" href={`https://pharos.watch/${directory[0]}/`} target="_blank" rel="noopener noreferrer">
-    {directory[1]}<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens in a new tab)</span>
+  const model = useUISlice((s) => s.model);
+  if (!selected) return null;
+  const target = selected.kind === "boat"
+    ? (isTokenizedFund(model?.boats.find((b) => b.id === selected.id))
+      ? [`stablecoin/${encodeURIComponent(selected.id)}`, "Fund profile on Pharos"]
+      : ["stablecoins", "Stablecoins on Pharos analytics"])
+    : selected.kind === "harbour" ? ["chains", "Chains on Pharos analytics"]
+      : selected.kind === "landmark" && (selected.id === "warehouse" || selected.id === "reserve-anchorage")
+        ? ["stablecoins", "Stablecoins & funds on Pharos"] : null;
+  if (!target) return null;
+  return <p className="hb-caption"><a className="hb-out" href={`https://pharos.watch/${target[0]}/`} target="_blank" rel="noopener noreferrer">
+    {target[1]}<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens in a new tab)</span>
   </a></p>;
 }

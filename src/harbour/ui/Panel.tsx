@@ -2,9 +2,9 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { CAUSE_META } from "@shared/lib/cause-of-death";
 import { deadRecords, FAMILIES, FAMILY_ORDER, type CauseFamily } from "../model/obituary";
 import { anniversaryToday, worldToday } from "../model/anniversary";
-import type { Boat, EndpointKey, HarbourModel } from "../model/types";
+import { isCoreBoat, isTokenizedFund, type Boat, type EndpointKey, type HarbourModel } from "../model/types";
 import { ChainSplit, chainLogo, Crest, DEWS_INK, FlowBars, Freshness, Logo, PSI_INK, Sparkline, TideBars } from "./bits";
-import { ANNIVERSARY_RULE, FLOW_RULE, HULL_RULE, LETTERING_RULE, OFFICE_RULE, SAIL_RULE, SEA_RULE, TIDE_RULE, WREATH_RULE, WRECK_RULE, alertCountLine, allocationLine, BOAT_SIGNALS_RULE, circuitStops, FAR_PORTS_LINE, flowTotals, MAIDEN_LINE, REEF_FLARE_LINE, obituaryText, officeLine, quoted, SOUND_FLOW, SOUND_PHAROS, SOUND_SURF, STATION_RULE, stationFact, stormSignalLine, whereLine, whyHere, wreckDate } from "./facts";
+import { ANNIVERSARY_RULE, FLOW_RULE, HULL_RULE, LETTERING_RULE, OFFICE_RULE, RESERVE_RULE, SAIL_RULE, SEA_RULE, TIDE_RULE, WREATH_RULE, WRECK_RULE, alertCountLine, allocationLine, BOAT_SIGNALS_RULE, circuitStops, FAR_PORTS_LINE, flowTotals, MAIDEN_LINE, REEF_FLARE_LINE, obituaryText, officeLine, quoted, SOUND_FLOW, SOUND_PHAROS, SOUND_SURF, STATION_RULE, stationFact, stormSignalLine, whereLine, whyHere, wreckDate } from "./facts";
 import { bps, causeName, MINUS, money, pctChange, pegName, share, titleCase, vesselKind } from "./format";
 import { observedEmpty, qualificationCopy, readingCoverage, readingSentence, READING_NAMES, sourceTruth } from "./source-state";
 import { presentationCopy, usePresentation } from "./presentation";
@@ -101,12 +101,16 @@ function Scenery({ children }: { children: ReactNode }) {
 
 function PanelSources({ hit }: { hit: PickHit }) {
   const store = useStore();
-  const sources: EndpointKey[] = hit.kind === "boat" && store.boat?.(hit.id)?.state === "wrecked" ? [] : hit.kind === "boat" ? ["stablecoins", "pegSummary", "stress", "safetyGrades", "mintBurn"]
-    : hit.kind === "harbour" ? ["stablecoins", "chains"]
-      : hit.id === "pharos" || hit.id === "chartroom" ? ["stability"]
-        : hit.id === "shoals" ? ["stablecoins", "pegSummary"] : hit.id === "storm-mast" ? ["stablecoins", "stress"]
-          : hit.id === "mint" || hit.id === "burn" || hit.id === "customs-house" || hit.id === "tide-board" ? ["mintBurn"]
-            : hit.id === "tide-gauge" ? ["chains"] : hit.id === "registry" ? ["stablecoins", "safetyGrades"] : [];
+  const boat = hit.kind === "boat" ? (store.boat?.(hit.id) ?? store.getSnapshot().model?.boats.find((x) => x.id === hit.id)) : null;
+  const sources: EndpointKey[] = hit.kind === "boat" && boat?.state === "wrecked" ? []
+    : hit.kind === "boat" && isTokenizedFund(boat) ? ["stablecoins"]
+      : hit.kind === "boat" ? ["stablecoins", "pegSummary", "stress", "safetyGrades", "mintBurn"]
+        : hit.kind === "harbour" ? ["stablecoins", "chains"]
+          : hit.id === "pharos" || hit.id === "chartroom" ? ["stability"]
+            : hit.id === "shoals" ? ["stablecoins", "pegSummary"] : hit.id === "storm-mast" ? ["stablecoins", "stress"]
+              : hit.id === "mint" || hit.id === "burn" || hit.id === "customs-house" || hit.id === "tide-board" ? ["mintBurn"]
+                : hit.id === "tide-gauge" ? ["chains"] : hit.id === "registry" ? ["stablecoins", "safetyGrades"]
+                  : hit.id === "warehouse" || hit.id === "reserve-anchorage" ? ["stablecoins"] : [];
   if (!sources.length) return null;
   return <details className="hb-sources"><summary>Sources</summary>{sources.map((source) => <p key={source}><button type="button" className="hb-textbtn" onClick={() => store.select({ kind: "landmark", id: "keeperslog" }, { fly: false })}>{READING_NAMES[source]} · source state and observation time</button></p>)}</details>;
 }
@@ -114,6 +118,17 @@ function PanelSources({ hit }: { hit: PickHit }) {
 function Sec({ title, children }: { title: string; children: ReactNode }) {
   return <section className="hb-sec"><h3 className="hb-sec-h hb-sc">{title}</h3>{children}</section>;
 }
+
+function PlaceLink({ id, label, note, top = 10 }: { id: string; label: string; note: string; top?: number }) {
+  const store = useStore();
+  return <ul className="hb-list hb-stops" style={{ marginTop: top }}><li><button type="button" className="hb-row" onClick={() => store.select({ kind: "landmark", id })}><span><b>{label}</b><em>{note}</em></span><span className="hb-num" aria-hidden="true">→</span></button></li></ul>;
+}
+
+function OutLink({ href, children, sr = "opens in a new tab" }: { href: string; children: ReactNode; sr?: string }) {
+  return <a className="hb-out" href={href} target="_blank" rel="noopener noreferrer">{children}<span aria-hidden="true"> ↗</span><span className="hb-sr"> ({sr})</span></a>;
+}
+
+const fundsWord = (n: number) => `${n} tokenized ${n === 1 ? "fund" : "funds"}`;
 
 function PanelContent({ hit, titleRef }: { hit: PickHit; titleRef: React.RefObject<HTMLHeadingElement | null> }) {
   const store = useStore();
@@ -144,15 +159,88 @@ function PanelContent({ hit, titleRef }: { hit: PickHit; titleRef: React.RefObje
     case "chartroom": return <ChartRoomPanel model={model} titleRef={titleRef} />;
     case "keeperslog": return <KeepersLogPanel model={model} titleRef={titleRef} />;
     case "registry": return <RegistryPanel model={model} titleRef={titleRef} />;
+    case "warehouse": case "reserve-anchorage": return <WarehousePanel id={hit.id} model={model} titleRef={titleRef} />;
     default: return <Head kicker="Landmark" title={name} titleRef={titleRef} />;
   }
 }
 
-// ------------------------------------------------------------------ boat
+// ------------------------------------------------------------------ boat & tokenized fund
+
+const ARCHETYPE_LABEL: Record<string, string> = {
+  tbill: "Tokenized T-bill fund",
+  "rwa-credit-fund": "Tokenized credit fund",
+};
+const VARIANT_KIND_LABEL: Record<string, string> = {
+  "savings-passthrough": "savings wrapper",
+  "strategy-vault": "strategy vault",
+  "bond-maturity": "bond maturity",
+  "risk-absorption": "risk absorption",
+  "pure-wrapper": "wrapper",
+};
+const changeVal = (v: number | null) => <b className={v == null ? "" : v > 0.0005 ? "hb-up" : v < -0.0005 ? "hb-down" : ""}>{v == null ? "Comparison unavailable." : pctChange(v)}</b>;
+
+function FundPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHeadingElement | null> }) {
+  const store = useStore();
+  useUI();
+  const w = store.whereaboutsOf(b.id);
+  const model = store.getSnapshot().model;
+  const coin = ((raw(store, "stablecoins")?.peggedAssets as Raw[] | undefined) ?? []).find((c) => c.id === b.id);
+  const prevDay = sumBuckets(coin?.circulatingPrevDay) || (b.supplyPrevDay ?? 0);
+  const prev24 = prevDay > 0 ? b.supply / prevDay - 1 : null;
+  const meta = b.fundMeta, backedIds = meta?.backedIds ?? [], liveAdapters = new Set(meta?.liveAdapterBackedIds ?? []);
+  return (
+    <>
+      <Head kicker="Tokenized fund · not a stablecoin" title={b.symbol} sub={b.name !== b.symbol ? b.name : "Reserve Anchorage"} logo={<Logo src={b.logo} label={b.symbol} color={b.brandColor} />} titleRef={titleRef} />
+      <div className="hb-panel-body">
+        <p className="hb-pill" role="note" style={{ marginTop: 8 }}>Not a stablecoin · outside core totals &amp; Safety Scores</p>
+        <Sec title="Reserve AUM (USD)">
+          <Freshness model={model} source="stablecoins" />
+          <div className="hb-big hb-num">{money(b.supply)}</div>
+          {prev24 != null && <div className="hb-changes"><div><span className="hb-sc">24 h</span>{changeVal(prev24)}</div></div>}
+          <dl className="hb-dl" style={{ marginTop: 8 }}>
+            <dt>NAV basis</dt><dd>{meta?.navToken === true ? "NAV-accreting fund share" : meta?.navToken === false ? "Fixed-$1 NAV fund share" : "NAV basis not stated"}</dd>
+            <dt>Reference currency</dt><dd>{pegName(meta?.pegCurrency ?? b.pegType)}</dd>
+            {meta?.archetype && <><dt>Instrument</dt><dd>{ARCHETYPE_LABEL[meta.archetype] ?? causeName(meta.archetype)}</dd></>}
+          </dl>
+        </Sec>
+        <Sec title="Why peg does not apply">
+          <p className="hb-why">Tokenized fund shares trade on fund NAV rather than a fixed-par stablecoin peg; peg deviation and depeg history do not apply.</p>
+        </Sec>
+        <Sec title="Safety grade">
+          <dl className="hb-dl"><dt>Safety grade</dt><dd>Not graded</dd></dl>
+          <p className="hb-caption">{!b.gradeReason || b.gradeReason.startsWith("tokenized-fund") ? "Tokenized funds are not assigned Pharos Safety Score letter grades under Listing Policy 2.0." : b.gradeReason}</p>
+        </Sec>
+        <Sec title={`Backed stablecoins${backedIds.length ? ` · ${backedIds.length}` : ""}`}>
+          {backedIds.length ? (
+            <ul className="hb-list">
+              {backedIds.map((id) => {
+                const t = model?.boats.find((x) => x.id === id), ad = liveAdapters.has(id);
+                const sub = [t && t.name !== t.symbol ? t.name : "", ad ? "live reserve adapter" : ""].filter(Boolean).join(" · ");
+                return <li key={id}>{t
+                  ? <button type="button" className="hb-row" onClick={() => store.select({ kind: "boat", id })}><span><b>{t.symbol}</b>{sub && <em> {sub}</em>}</span><span className="hb-num">{money(t.supply)}</span></button>
+                  : <div className="hb-row"><span><b>{id}</b>{ad && <em> live reserve adapter</em>}</span><span className="hb-num">—</span></div>}</li>;
+              })}
+            </ul>
+          ) : <p className="hb-empty">No active backed stablecoins listed.</p>}
+          <p className="hb-caption">Select a stablecoin to inspect it. Dashed arcs trace each backing link to a stablecoin in the harbour.</p>
+        </Sec>
+        <Sec title="Supply by chain"><ChainSplit boat={b} /></Sec>
+        <CoinReadings id={b.id} model={model} mode="fund" />
+        <Scenery>
+          <div className="hb-where">In Reserve Anchorage</div>
+          <p className="hb-why">{whyHere(b, w)}</p>
+          <p className="hb-caption">{RESERVE_RULE}</p>
+          <PlaceLink id="reserve-anchorage" label="Reserve Anchorage" note="all tokenized funds" />
+        </Scenery>
+      </div>
+    </>
+  );
+}
 
 function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHeadingElement | null> }) {
   const store = useStore();
   useUI(); // re-render on tick: whereabouts change
+  if (isTokenizedFund(b)) return <FundPanel b={b} titleRef={titleRef} />;
   const w = store.whereaboutsOf(b.id);
   const coin = ((raw(store, "stablecoins")?.peggedAssets as Raw[] | undefined) ?? []).find((c) => c.id === b.id) ?? null;
   const prev = (k: string) => { const v = sumBuckets(coin?.[k]); return v > 0 ? b.supply / v - 1 : null; };
@@ -166,8 +254,9 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
   const net7 = mint ? coinNet(mint, 7, flowAt) : null;
   const model = store.getSnapshot().model;
   const sub = `${b.name} · ${vesselKind(b.rig, b.hullClass)}`;
-  const ch = (v: number | null) => <b className={v == null ? "" : v > 0.0005 ? "hb-up" : v < -0.0005 ? "hb-down" : ""}>{v == null ? "Comparison unavailable." : pctChange(v)}</b>;
-  const signal = stormSignalLine(b, store.getSnapshot().model?.truth.stress.state === "current");
+  const signal = stormSignalLine(b, model?.truth.stress.state === "current");
+  const backingFunds = (model?.boats ?? []).filter((f) => isTokenizedFund(f) && f.fundMeta?.backedIds.includes(b.id)).sort((x, y) => y.supply - x.supply);
+  const variants = [...(model?.variantsByParent?.[b.id] ?? [])].sort((x, y) => y.supply - x.supply);
   const pegReading = (
     <Sec title="Peg">
       <Freshness model={model} source="pegSummary" />
@@ -188,9 +277,9 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
           <Freshness model={model} source="stablecoins" />
           <div className="hb-big hb-num">{money(b.supply)}</div>
           <div className="hb-changes">
-            <div><span className="hb-sc">24 h</span>{ch(prev("circulatingPrevDay"))}</div>
-            <div><span className="hb-sc">7 d</span>{ch(prev("circulatingPrevWeek"))}</div>
-            <div><span className="hb-sc">30 d</span>{ch(prev("circulatingPrevMonth"))}</div>
+            <div><span className="hb-sc">24 h</span>{changeVal(prev("circulatingPrevDay"))}</div>
+            <div><span className="hb-sc">7 d</span>{changeVal(prev("circulatingPrevWeek"))}</div>
+            <div><span className="hb-sc">30 d</span>{changeVal(prev("circulatingPrevMonth"))}</div>
           </div>
           {b.maiden && <p className="hb-caption">Maiden voyage: {MAIDEN_LINE}, with no supply on record a week or a month ago.</p>}
         </Sec>
@@ -228,6 +317,25 @@ function BoatPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
             </>}
           </> : <p className="hb-empty">No flow reading is available for this coin.</p>}
         </Sec>
+
+        {backingFunds.length > 0 && (
+          <Sec title="Reserve fund backing">
+            <BoatList rows={backingFunds.map((f) => ({ id: f.id, label: <><b>{f.symbol}</b> <em>{f.name !== f.symbol ? f.name : "tokenized fund"}</em></>, value: money(f.supply) }))} />
+            <p className="hb-caption">Tokenized funds held as reserve backing lie in Reserve Anchorage, outside core stablecoin totals.</p>
+          </Sec>
+        )}
+
+        {variants.length > 0 && (
+          <Sec title={`Tracked variants · ${variants.length}`}>
+            <ul className="hb-list">
+              {variants.map((v) => (
+                <li key={v.id}><div className="hb-row"><span><b>{v.symbol}</b> <em>{VARIANT_KIND_LABEL[v.kind] ?? causeName(v.kind)}</em></span><span className="hb-num">{money(v.supply)}</span></div></li>
+              ))}
+            </ul>
+            <p className="hb-caption">Tracked variants are excluded from fleet supply totals to prevent double-counting.</p>
+          </Sec>
+        )}
+
         <CoinReadings id={b.id} model={model} />
         <Scenery>
         {whereLine(b, w) && <div className="hb-where">{titleCase(whereLine(b, w).charAt(0)) + whereLine(b, w).slice(1)}</div>}
@@ -432,7 +540,7 @@ function StormPanel({ model, titleRef }: P) {
   const wx = store.ctx.services.get("weather");
   const trend = stormTrend(wx?.state.front ?? null);
   const recovered = wx?.recoveryLine ?? null;
-  const alerts = (model?.boats ?? []).filter((b) => b.state !== "wrecked" && (b.dews === "ALERT" || b.dews === "WARNING" || b.dews === "DANGER"))
+  const alerts = (model?.boats ?? []).filter((b) => isCoreBoat(b) && b.state !== "wrecked" && (b.dews === "ALERT" || b.dews === "WARNING" || b.dews === "DANGER"))
     .sort((a, b) => (b.dewsScore ?? 0) - (a.dewsScore ?? 0));
   const w = model?.readings.weather;
   return (
@@ -518,7 +626,7 @@ function WreckPanel({ model, titleRef }: P) {
             ))}
           </ul>
         </Sec>
-        <p className="hb-caption" style={{ marginTop: 14 }}><a className="hb-out" href="https://pharos.watch/cemetery/" target="_blank" rel="noopener noreferrer">The full cemetery on pharos.watch<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens in a new tab)</span></a></p>
+        <p className="hb-caption" style={{ marginTop: 14 }}><OutLink href="https://pharos.watch/cemetery/">The full cemetery on pharos.watch</OutLink></p>
         <Scenery>
         <p className="hb-why">Each wreck is one dead coin. Its size is the peak market cap it reached; its form tells how it died. The twenty largest have their posts on the memorial above the tide line, lit at dusk.</p>
         </Scenery>
@@ -529,7 +637,6 @@ function WreckPanel({ model, titleRef }: P) {
 
 /** One dead coin's obituary, in the chart-paper voice: its lived dates, peak, cause, epitaph, story and sources. */
 function ObituaryPanel({ id, titleRef }: { id: string; titleRef: P["titleRef"] }) {
-  const store = useStore();
   const r = deadRecords().get(id);
   if (!r) return <Head kicker="In memoriam" title={id} sub="not in the register of the dead" titleRef={titleRef} />;
   const fam = FAMILIES[r.family];
@@ -553,10 +660,8 @@ function ObituaryPanel({ id, titleRef }: { id: string; titleRef: P["titleRef"] }
             <p className="hb-obit-src"><a href={r.sourceUrl} target="_blank" rel="noopener noreferrer">{r.sourceLabel ?? new URL(r.sourceUrl).hostname}<span aria-hidden="true"> ↗</span><span className="hb-sr"> (source, opens in a new tab)</span></a></p>
           </Sec>
         )}
-        <p className="hb-caption" style={{ marginTop: 16 }}><a className="hb-out" href={r.pharosUrl} target="_blank" rel="noopener noreferrer">Its grave on pharos.watch<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens in a new tab)</span></a></p>
-        <ul className="hb-list hb-stops" style={{ marginTop: 10 }}>
-          <li><button type="button" className="hb-row" onClick={() => store.select({ kind: "landmark", id: "wreck-cove" })}><span><b>Wreck Cove</b><em>every wreck, by date, cause and peak</em></span><span className="hb-num" aria-hidden="true">→</span></button></li>
-        </ul>
+        <p className="hb-caption" style={{ marginTop: 16 }}><OutLink href={r.pharosUrl}>Its grave on pharos.watch</OutLink></p>
+        <PlaceLink id="wreck-cove" label="Wreck Cove" note="every wreck, by date, cause and peak" />
       </div>
     </>
   );
@@ -570,7 +675,7 @@ function FarPortsPanel({ model, titleRef }: P) {
       <div className="hb-panel-body">
         <Freshness model={model} source="stablecoins" />
 
-        {model && <p className="hb-caption">{allocationLine(model.boats)}</p>}
+        {model && <p className="hb-caption">{allocationLine(model.boats.filter(isCoreBoat))}</p>}
 
         <Sec title="Chains">
           <ul className="hb-list">
@@ -654,7 +759,7 @@ function TidePanel({ model, titleRef }: P) {
 function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
   const store = useStore();
   const h = model?.harbours.find((x) => x.chain === chain);
-  const visitors = (model?.boats ?? []).map((b) => ({ b, usd: b.chainShares.find((c) => c.chain === chain)?.usd ?? 0 }))
+  const visitors = (model?.boats ?? []).filter(isCoreBoat).map((b) => ({ b, usd: b.chainShares.find((c) => c.chain === chain)?.usd ?? 0 }))
     .filter((x) => x.usd > 0).sort((a, b) => b.usd - a.usd);
   const chainRow = ((raw(store, "chains")?.chains as Raw[] | undefined) ?? []).find((c) => c.name === chain);
   const officeState = store.ctx.services.get("readings")?.offices?.[chain];
@@ -676,7 +781,7 @@ function HarbourPanel({ chain, model, titleRef }: { chain: string } & P) {
             </div>
 
             {office && <p className="hb-caption">{office}.</p>}
-            {model && <p className="hb-caption">{allocationLine(model.boats)}</p>}
+            {model && <p className="hb-caption">{allocationLine(model.boats.filter(isCoreBoat))}</p>}
             {/* the health score is a chain comparison too: it reads the foot above the 24 h · 7 d · 30 d, printed once */}
             <Sec title="Chain health">{h.healthScore != null ? <dl className="hb-dl"><dt>Health score</dt><dd>{Math.round(h.healthScore)}</dd></dl> : <p className="hb-caption">Chain health unavailable.</p>}</Sec>
             <Sec title="Largest reported holdings">
@@ -774,7 +879,7 @@ const fullDate = (d: string) => {
 };
 
 function UpcomingLink({ children }: { children: ReactNode }) {
-  return <a className="hb-out" href={UPCOMING_URL} target="_blank" rel="noopener noreferrer">{children}<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens pharos.watch in a new tab)</span></a>;
+  return <OutLink href={UPCOMING_URL} sr="opens pharos.watch in a new tab">{children}</OutLink>;
 }
 
 /** The yard's build line: one step per launch phase, the coin's own step marked. */
@@ -865,9 +970,7 @@ function YardCoinPanel({ id, titleRef }: { id: string; titleRef: P["titleRef"] }
           {c.milestones.length > shown.length && <p className="hb-caption">and {c.milestones.length - shown.length} earlier on pharos.watch.</p>}
         </Sec>
         <p className="hb-caption" style={{ marginTop: 16 }}>Bundled admission records; see sources for dates. <UpcomingLink>All upcoming coins on Pharos</UpcomingLink></p>
-        <ul className="hb-list hb-stops" style={{ marginTop: 10 }}>
-          <li><button type="button" className="hb-row" onClick={() => store.select({ kind: "landmark", id: "slipway" })}><span><b>The Shipyard</b><em>every coin on the slips</em></span><span className="hb-num" aria-hidden="true">→</span></button></li>
-        </ul>
+        <PlaceLink id="slipway" label="The Shipyard" note="every coin on the slips" />
       </div>
     </>
   );
@@ -918,9 +1021,7 @@ function ChartRoomPanel({ model, titleRef }: P) {
             </dl>
           )}
         </Sec>
-        <ul className="hb-list hb-stops" style={{ marginTop: 14 }}>
-          <li><button type="button" className="hb-row" onClick={() => store.select({ kind: "landmark", id: "pharos" })}><span><b>The Pharos</b><em>the reading now</em></span><span className="hb-num" aria-hidden="true">→</span></button></li>
-        </ul>
+        <PlaceLink id="pharos" label="The Pharos" note="the reading now" top={14} />
         <Scenery>
         <p className="hb-why">Where the keepers chart the stability index day by day: the beacon shows the market now, the Chart Room shows how it got here.</p>
         </Scenery>
@@ -964,14 +1065,63 @@ function KeepersLogPanel({ model, titleRef }: P) {
   );
 }
 
+function WarehousePanel({ id, model, titleRef }: { id: string } & P) {
+  const store = useStore();
+  const funds = (model?.boats ?? []).filter(isTokenizedFund).sort((a, b) => b.supply - a.supply);
+  const aum = model?.reserveSupplyTotal ?? funds.reduce((s, b) => s + b.supply, 0);
+  const byId = new Map((model?.boats ?? []).map((b) => [b.id, b]));
+  const reviewHold = model?.reviewHold ?? [];
+  return (
+    <>
+      <Head kicker={id === "warehouse" ? "Landmark · Policy 2.0" : "Sea zone · Policy 2.0"} title={id === "warehouse" ? "Bonded Warehouse" : "Reserve Anchorage"}
+        sub={`${fundsWord(funds.length)} · ${money(aum)} reserve AUM`} titleRef={titleRef} />
+      <div className="hb-panel-body">
+        <Freshness model={model} source="stablecoins" />
+        <p className="hb-why">Tokenized funds are investment-fund shares or NAV-priced claims retained because active stablecoins hold them as reserve backing. They lie furled under raw-linen covers with a rectangular reserve ensign and unlit lantern, outside core stablecoin totals and Safety Scores.</p>
+        <Sec title={`Tokenized funds · ${funds.length}`}>
+          {funds.length ? (
+            <ul className="hb-list hb-wrecks">
+              {funds.map((f) => {
+                const backed = (f.fundMeta?.backedIds ?? []).map((bid) => byId.get(bid)?.symbol ?? bid);
+                return (
+                  <li key={f.id}>
+                    <button type="button" className="hb-row" onClick={() => store.select({ kind: "boat", id: f.id })}>
+                      <span className="hb-wreck-name"><Logo src={f.logo} label={f.symbol} color={f.brandColor} size={20} /><b>{f.symbol}</b><em>{f.name !== f.symbol ? f.name : ""}</em></span>
+                      <span className="hb-num">{money(f.supply)}</span>
+                      <span className="hb-wreck-line"><span>{backed.length ? `Backs ${backed.slice(0, 3).join(", ")}${backed.length > 3 ? ` +${backed.length - 3}` : ""}` : "Reserve backing"}</span><span className="hb-wreck-meta">{f.fundMeta?.navToken === true ? "Accruing NAV" : f.fundMeta?.navToken === false ? "Fixed $1" : "Not stated"}</span></span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : <p className="hb-empty">No tokenized fund readings in the current harbour.</p>}
+        </Sec>
+        {reviewHold.length > 0 && (
+          <Sec title={`Under listing review · ${reviewHold.length}`}>
+            <ul className="hb-list">
+              {reviewHold.map((r) => (
+                <li key={r.id}><div className="hb-row"><span><b>{r.symbol}</b> <em>Under listing review — outside core totals</em></span><span className="hb-num">{money(r.supply)}</span></div></li>
+              ))}
+            </ul>
+          </Sec>
+        )}
+        <Scenery><p className="hb-why">{RESERVE_RULE}</p></Scenery>
+      </div>
+    </>
+  );
+}
+
 function RegistryPanel({ model, titleRef }: P) {
-  const live = (model?.boats ?? []).filter((b) => b.state !== "wrecked");
-  const available = model?.truth.safetyGrades.state !== "unavailable";
-  const tally = gradeTally(available ? live : []);
+  const store = useStore();
+  const live = (model?.boats ?? []).filter((b) => isCoreBoat(b) && b.state !== "wrecked");
+  const coreCount = model?.coreCount ?? live.length;
+  const reserveCount = model?.reserveCount ?? model?.boats.filter(isTokenizedFund).length ?? 0;
+  const reserveAum = model?.reserveSupplyTotal ?? (model?.boats ?? []).filter(isTokenizedFund).reduce((s, b) => s + b.supply, 0);
+  const tally = gradeTally(model?.truth.safetyGrades.state !== "unavailable" ? live : []);
   const order = ["A", "B", "C", "D", "E", "F", "—"].filter((g) => tally.has(g));
   return (
     <>
-      <Head kicker="Landmark" title="The Registry" sub={`${model?.payloadCount ?? 0} coins on the register`} titleRef={titleRef} />
+      <Head kicker="Landmark" title="The Registry" sub={`${coreCount} ${coreCount === 1 ? "stablecoin" : "stablecoins"} on the register`} titleRef={titleRef} />
       <div className="hb-panel-body">
         <Freshness model={model} source="safetyGrades" />
         <Freshness model={model} source="stablecoins" />
@@ -983,10 +1133,16 @@ function RegistryPanel({ model, titleRef }: P) {
             </dl>
           </Sec>
         )}
-        <p className="hb-caption">The grade board groups live boats by grade letter; NR and missing grades are Not rated. Wrecks are excluded.</p>
+        {reserveCount > 0 && (
+          <p className="hb-caption">
+            Reserve Anchorage: {fundsWord(reserveCount)} ({money(reserveAum)} AUM) — not graded under Listing Policy 2.0.{" "}
+            <button type="button" className="hb-textbtn" onClick={() => store.select({ kind: "landmark", id: "reserve-anchorage" })}>View Reserve Anchorage</button>
+          </p>
+        )}
+        <p className="hb-caption">The grade board groups live core stablecoins by grade letter; NR and missing grades are Not rated. Wrecks and tokenized funds are excluded.</p>
         <p className="hb-caption">Press <kbd>L</kbd> for the ledger, or <kbd>/</kbd> to find one coin.</p>
         <Scenery>
-        <p className="hb-why">Every stablecoin the register knows is a boat in this harbour: no sampling, no sister ships. The Registry also keeps each coin’s safety grade.</p>
+        <p className="hb-why">Every active core stablecoin on the water is a boat in this harbour: no sampling, no sister ships. The Registry also keeps each coin’s safety grade.</p>
         </Scenery>
       </div>
     </>

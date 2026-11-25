@@ -1,6 +1,6 @@
 import { DepegEventsResponseSchema, DexLiquidityMapSchema } from "@shared/types/market";
 import { StablecoinReservesResponseSchema } from "@shared/types/live-reserves";
-import { RUNTIME_ACTIVE_IDS } from "@shared/lib/stablecoins/runtime-registry";
+import { RUNTIME_ACTIVE_IDS } from "@shared/lib/stablecoins/runtime-active-ids";
 import type { ProjectionJson } from "../../../functions/api/_project";
 import type { PanelEndpointKey } from "@shared/lib/pharosville-panel-endpoints";
 

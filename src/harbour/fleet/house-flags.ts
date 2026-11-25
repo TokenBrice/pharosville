@@ -9,16 +9,17 @@ import { PRINT_FULL_PX, PRINT_INK_SAT, PRINT_SOFT_PX } from "./shaders/print";
  * still reads coin by coin. One instanced draw. Each flag is a cloth in the coin's BRAND colour with its emblem
  * (atlas slot: the logo on its white roundel) near the hoist, on both faces, streaming downwind (the weather's
  * wind: flutter and droop follow its strength), turned a little toward the viewer so it reads, lit with the scene.
- * Styles: a swallowtail BURGEE at the masthead (every hull) · a big rectangular HOUSE FLAG (the titans) · the
- * red-and-white chequered DISTRESS flag (aground on the Shoals: flown above her own colours, never instead). When a
- * flag is only a few pixels across (the overview) the roundel melts away and the brand field remains: a dot of the
- * coin's colour over its hull.
+ * Styles: a swallowtail BURGEE at the masthead (every core hull) · a big rectangular HOUSE FLAG (the titans) ·
+ * the red-and-white chequered DISTRESS flag (aground on the Shoals: flown above her own colours, never instead) ·
+ * a rectangular bonded-linen RESERVE ensign with double ochre-brass ledger bars and hoist brand stripe (tokenized
+ * funds in Reserve Anchorage). When a flag is only a few pixels across (the overview) the roundel melts away and
+ * the field remains.
  * E04 (O5-I5/I1/I6; ruling V3): her colours fly in the harbour's air and pigment: the field arrives at the
  * earth-pigment chroma (the caller passes the capped colour) and takes the distance air at 0.6 × its cap; the device
  * is printed on cream canvas by the print law (contrast by its size on screen), a monogram as lettering. The hovered,
  * selected or searched hull (add's `hi`) flies her full colours, unhazed. The distress flag is a signal: exempt.
  */
-export const FLAG_BURGEE = 0, FLAG_HOUSE = 1, FLAG_DISTRESS = 2;
+export const FLAG_BURGEE = 0, FLAG_HOUSE = 1, FLAG_DISTRESS = 2, FLAG_RESERVE = 3;
 /** 06-F7c a titan's vexillum: a long tapering masthead streamer in her colours, above the house flag (decorative). */
 export const FLAG_STREAMER = 5;
 /** E04: added to a flag's style when its hull is highlighted (hover / selection / search): full colours, no air. */
@@ -141,18 +142,31 @@ void main() {
     gl_FragColor = vec4(c, 1.0);
     return;
   }
+  bool isDistress = style > 1.5 && style < 2.5;
+  bool isReserve = style > 2.5 && style < 3.5;
   float lum = dot(brand, vec3(0.2126, 0.7152, 0.0722));
-  if (style > 1.5) {
+  if (isDistress) {
     // distress: a red-and-white chequered signal flag
     vec2 k = floor(vec2(x * 4.0, vUv.y * 3.0));
     c = mod(k.x + k.y, 2.0) < 0.5 ? vec3(0.62, 0.07, 0.05) : CLOTH;
   } else {
-    // the brand field, a touch muted (dyed bunting, not plastic); a pale heading at the hoist
-    c = mix(vec3(lum), brand, 0.9) * 0.92;
-    if (style > 0.5) {
-      // house flag: a cream border band round the field
-      float band = 1.0 - smoothstep(0.05 - ax, 0.05 + ax, edge);
-      c = mix(c, CLOTH, band * 0.85);
+    if (isReserve) {
+      // reserve ensign: rectangular bonded-linen parchment field, double ochre-brass ledger bars, hoist brand stripe
+      c = vec3(0.76, 0.67, 0.50);
+      float ay = abs(ym);
+      float bars = smoothstep(0.25 - ax, 0.25 + ax, ay) * (1.0 - smoothstep(0.34 - ax, 0.34 + ax, ay));
+      c = mix(c, vec3(0.26, 0.16, 0.06), bars);
+      float hoist = 1.0 - smoothstep(0.16 - ax, 0.16 + ax, x);
+      c = mix(c, mix(vec3(lum), brand, 0.9) * 0.92, hoist);
+      cx = 0.56; R = 0.22;
+    } else {
+      // the brand field, a touch muted (dyed bunting, not plastic); a pale heading at the hoist
+      c = mix(vec3(lum), brand, 0.9) * 0.92;
+      if (style > 0.5) {
+        // house flag: a cream border band round the field
+        float band = 1.0 - smoothstep(0.05 - ax, 0.05 + ax, edge);
+        c = mix(c, CLOTH, band * 0.85);
+      }
     }
     c = mix(c, CLOTH * 0.9, 1.0 - smoothstep(0.035 - ax, 0.035 + ax, x));
     // the emblem roundel, while it is big enough on screen to be one (a few px: the brand dot remains)
@@ -194,8 +208,8 @@ void main() {
   // a thin darker hem so the cloth reads against sky and water
   c *= mix(0.6, 1.0, smoothstep(0.0, 0.03 + ax, edge));
   c = hbFlagLit(c, fN, fV, style > 0.5 ? 0.95 : 0.82);
-  // E04: the harbour's air (distress and highlight exempt)
-  hbAerial(c, vec3(0.0), style > 1.5 ? 1.0 : max(${f2(1 - FLAG_AIR)}, hi));
+  // E04: the harbour's air (distress and highlight exempt; reserve ensigns take normal FLAG_AIR haze)
+  hbAerial(c, vec3(0.0), isDistress ? 1.0 : max(${f2(1 - FLAG_AIR)}, hi));
   gl_FragColor = vec4(c, 1.0);
 }`;
 
@@ -248,7 +262,7 @@ export class HouseFlags {
   /**
    * A flag hoisted at (x,y,z), `size` m on the fly, streaming toward `downwind` (heading convention:
    * along (sin, cos)), turned up to `face` radians toward `toCam` (heading of the camera from the flag).
-   * `brand` is linear; `style` FLAG_BURGEE | FLAG_HOUSE | FLAG_DISTRESS; `hi`: her hull is hovered, selected or searched.
+   * `brand` is linear; `style` FLAG_BURGEE | FLAG_HOUSE | FLAG_DISTRESS | FLAG_RESERVE | FLAG_STREAMER; `hi`: her hull is hovered, selected or searched.
    */
   add(x: number, y: number, z: number, size: number, downwind: number, toCam: number, slot: number, phase: number, brand: THREE.Color, style: number, hi = false): void {
     if (this.n >= this.mesh.instanceMatrix.count) return;

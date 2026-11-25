@@ -66,6 +66,15 @@ describe("sternLampLit", () => {
     expect(lit).toBeLessThan(MOORED_LIT + 0.05);
     expect(sternLampLit({ id: "x", nullPeg: false }, "moored")).toBe(sternLampLit({ id: "x", nullPeg: false }, "moored"));
   });
+  it("never lights a stern or anchor lamp for tokenized funds regardless of nullPeg", () => {
+    for (const at of ["under-way", "anchored", "moored"] as const) {
+      for (const id of ids.slice(0, 40)) {
+        expect(sternLampLit({ id, nullPeg: false, listingClass: "tokenized-fund", state: "moored" }, at)).toBe(false);
+        expect(sternLampLit({ id, nullPeg: false, listingClass: "core-stablecoin", state: "reserve" }, at)).toBe(false);
+        expect(sternLampLit({ id, nullPeg: false, state: "reserve" }, at)).toBe(false);
+      }
+    }
+  });
 });
 
 describe("pegLampsLive (D11 neutral pose)", () => {

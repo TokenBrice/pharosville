@@ -5,7 +5,7 @@
  * search, and the same answer for every viewer. Dock time at each stop = its supply share (D10).
  */
 import { u01 } from "../model/classify";
-import type { Boat, HarbourModel, HullClass } from "../model/types";
+import { isTokenizedFund, type Boat, type HarbourModel, type HullClass } from "../model/types";
 import { addRaftSlot, CLASS_ORDER, slotConflictsFor, slotsOverlap, type HullFootprint, type SimLayout } from "./layout-graph";
 import { ACCEL, cruiseSpeed, legTiming, newLegTiming } from "./path";
 import { OFFSHORE_VARIANTS, outingMetres, outingTrack, outingVariants, scenicExtraMetres, trackClearOf } from "./outings";
@@ -334,7 +334,7 @@ export function buildPlan(model: HarbourModel, L: SimLayout): Plan {
 
   // 1. static hulls hold one slot for the whole cycle
   for (const { b } of ordered) {
-    if (b.state === "wrecked") { plans.set(b.id, empty(b, "none")); continue; }
+    if (b.state === "wrecked" || isTokenizedFund(b)) { plans.set(b.id, empty(b, "none")); continue; }
     if (b.circuit.length !== 1) continue;
     const where = whereOfStop(b.circuit[0].chain);
     const foot = feet.get(b.id)!, isHero = heroes.has(b.id);

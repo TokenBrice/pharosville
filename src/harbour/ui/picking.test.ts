@@ -81,4 +81,15 @@ describe("visible candidate selection", () => {
     expect(f.analytic.boatCandidates(0, 0)).toEqual([]);
     expect(f.ground.heightAt).not.toHaveBeenCalled();
   });
+
+  it("treats reserve-anchorage as a water area zone with no hover sphere while picking the Bonded Warehouse building", () => {
+    const f = fixture([]);
+    const layout = f.ctx.services.get("layout") as unknown as { landmarks: unknown[]; seaZones: unknown[] };
+    layout.landmarks = [{ id: "warehouse", name: "Bonded Warehouse", position: [40, 2, 0], footprint: 22 }];
+    layout.seaZones = [{ id: "reserve-anchorage", name: "Reserve Anchorage", kind: "reserveAnchorage", polygon: [[-30, -30], [10, -30], [10, 30], [-30, 30]], labelAnchor: [-10, 0] }];
+    expect(f.analytic.hoverSphere({ kind: "landmark", id: "reserve-anchorage" })).toBeNull();
+    expect(f.analytic.hoverSphere({ kind: "landmark", id: "warehouse" })).not.toBeNull();
+    expect(f.analytic.pick(...f.point(-10, 0, 0))).toEqual({ kind: "landmark", id: "reserve-anchorage" });
+    expect(f.analytic.pick(...f.point(40, 6, 0))).toEqual({ kind: "landmark", id: "warehouse" });
+  });
 });

@@ -12,6 +12,21 @@ export interface PharosVilleChangelogEntry {
 
 export const PHAROSVILLE_CHANGELOG: PharosVilleChangelogEntry[] = [
   {
+    id: "2026-11-25-reserve-anchorage",
+    version: PHAROSVILLE_RELEASE_VERSIONS.reserveAnchorage,
+    date: "2026-11-25",
+    title: "Reserve Anchorage",
+    summary: "The harbour adopts Pharos Listing Policy 2.0: tokenized reserve funds anchor separately in Reserve Anchorage off the Bonded Warehouse, core stablecoin totals stay pure, and every fund, variant, pre-launch and dead-coin record is brought up to date from pharos-watch.",
+    bullets: [
+      "Reserve Anchorage off the Bonded Warehouse: tokenized funds tracked as reserve collateral (such as BUIDL, USTB, USYC and their peers) lie at anchor in twenty clear berths in the north-east bay rather than sailing chain circuits. They rest furled under un-dyed raw-linen sail covers, fly a rectangular parchment reserve ensign with ochre ledger bands and keep dark stern lanterns, since they carry no peg reading and are not graded.",
+      "Backing lines across the harbour: select any tokenized fund to trace warm brass dashed arcs from its anchorage out to the core stablecoins it backs, or inspect a core stablecoin to jump straight to its reserve funds.",
+      "Pure core stablecoin aggregates: total supply, chain harbours, sea state, weather, storm flags, Shoals placement, Registry grade counts and daily/weekly harbour reports count only core stablecoins. Tokenized funds report reserve AUM separately, tracked variants appear under their parent stablecoin rather than as extra hulls, review-hold entries are noted transparently in the Bonded Warehouse, and frozen or excluded listings stay off the water.",
+      "Bonded Warehouse, Funds tab and search: click the Bonded Warehouse or Reserve Anchorage water to inspect every tracked fund by AUM and see the Policy 2.0 rule; the Ledger adds a dedicated Funds tab alongside core-only Coins; search indexes funds, the Bonded Warehouse, Reserve Anchorage and tracked variants (jumping to the parent core stablecoin).",
+      "Listing Policy 2.0 sync and API contract v4 (`pv4`): refreshed vendored catalog, logos, sail emblem atlas, Shipyard launch book (recognising the new `launched` phase as rigged hulls), and Wreck Cove cemetery from `TokenBrice/pharos-watch`; the API proxy advances to projection epoch `pv4`, retaining `frozen`, `ratingStatus` and `notRatedReason` while serving the updated 343-id active allowlist.",
+    ],
+    source: "Collected from `release/v1.12.0` after v1.11.0: aligns PharosVille with Pharos Listing Policy 2.0 (`TokenBrice/pharos-watch@b408daad2aa0`) via the Reserve Anchorage / Bonded Warehouse separation, proxy contract v4 (`pv4`), and rebuilt sail emblem atlas. Core stablecoin analytical mappings (beam, sea state, weather, Shoals, hulls and chain docking) are unchanged; tokenized funds are now clearly distinguished from core stablecoins instead of sailing among them.",
+  },
+  {
     id: "2026-11-21-titans-and-wakes",
     version: PHAROSVILLE_RELEASE_VERSIONS.titansAndWakes,
     date: "2026-11-21",
