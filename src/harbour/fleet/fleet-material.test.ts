@@ -4,7 +4,7 @@ import { createWorldUniforms, type WorldUniforms } from "../engine/uniforms";
 import { HarbourMaterials } from "../world/materials";
 import type { EmblemAtlas } from "./emblems";
 import { createFleetMaterials, type FleetUniforms } from "./fleet-material";
-import { FleetSystem } from "./fleet-system";
+import { agroundSurfStrength, contactStrength, FleetSystem } from "./fleet-system";
 import { HouseFlags } from "./house-flags";
 import { bakeGltf, tubeRadii } from "./hull-kit";
 import { RIG_AIR } from "./shaders/lighting";
@@ -242,19 +242,27 @@ describe("W3 fleet shaders, E15 _AO, docked diversity & Top-10 Titans", () => {
     const kit = materials.kit();
     const fleet = (new FleetSystem() as unknown as FleetHarness).uniforms;
     const { material, depth } = createFleetMaterials({ kit: () => kit, kitKey: () => "", track: () => undefined } as unknown as HarbourMaterials, createWorldUniforms(), fleet);
-    expect(material.customProgramCacheKey()).toMatch(/^hb_fleet_v14_/);
+    expect(material.customProgramCacheKey()).toMatch(/^hb_fleet_v15_/);
     expect(depth.customProgramCacheKey()).toBe("hb_fleet_depth_v7");
     const shader = { ...THREE.ShaderLib.standard, uniforms: {} } as THREE.WebGLProgramParametersWithUniforms;
     material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
     expect(shader.vertexShader).toContain("attribute vec3 aPaint;");
     expect(shader.vertexShader).toContain("varying vec4 vPaintC;");
+    expect(shader.vertexShader).toContain("vHullSea.x = batchingMatrix[3].y;");
     expect(shader.vertexShader).toContain("hbDockedYardJitter(");
     expect(shader.vertexShader).toContain("hbDeckModuleDropped(");
     expect(shader.fragmentShader).toContain("varying vec4 vPaintC;");
     expect(shader.fragmentShader).toContain("float hbBoatAO = vPaintC.w;");
-    expect(shader.fragmentShader).toContain("hbHullWaterline(diffuseColor.rgb, vHbLocal, vHbWorld, uTime);");
+    expect(shader.fragmentShader).toContain("hbHullWaterline(diffuseColor.rgb, vHbWorld);");
+    expect(shader.fragmentShader).toContain("hbHullWaveY(worldPos.xz, uRunup.y, uRunup.x * vHullSea.y)");
+    // coastal-damped 5-wave waterline runs on Low tier (HB_LITE) too, not only High/Medium
+    expect(shader.fragmentShader).not.toMatch(/#ifdef HB_LITE\s+float wlH/);
     expect(shader.fragmentShader).toContain("hbMetal(hbPid, diffuseColor.rgb, hbVc, roughnessFactor)");
     expect(shader.fragmentShader).toContain("hbLampGlow(uWindowGlow, hbLampRank(vHbWorld, wJitter))");
+    // D11 07-M7: Shoals aground surf strength always stays strictly > 1.0 and > max storm-moored contactStrength
+    expect(agroundSurfStrength(0)).toBeGreaterThanOrEqual(1.05);
+    expect(agroundSurfStrength(0)).toBeGreaterThan(contactStrength(1));
+    expect(agroundSurfStrength(1)).toBeGreaterThan(agroundSurfStrength(0));
     const depthShader = { ...THREE.ShaderLib.depth, uniforms: {} } as THREE.WebGLProgramParametersWithUniforms;
     depth.onBeforeCompile(depthShader, {} as THREE.WebGLRenderer);
     expect(depthShader.vertexShader).toContain("attribute vec3 aPaint;");

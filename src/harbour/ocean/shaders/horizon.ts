@@ -1,11 +1,10 @@
 export const OCEAN_HORIZON = /* glsl */ `  // ---------------------------------------------------------------- horizon haze (meets the painted backdrop exactly)
   // gentle aerial perspective: the outer sea keeps its swell and colour, meeting the card exactly
-  float hz = smoothstep(uHorizonDist * 0.75, uHorizonDist * 0.998, fwdD);   // E03a: from .75 R (was .62), the far sea below the hero
-  // nearer water mixes in exactly nothing: skip the band lookup (explicit LOD, safe in a per-pixel branch)
+  float hz = smoothstep(uHorizonDist * 0.84, uHorizonDist * 0.998, fwdD);
   if (hz > 0.0) {
     float thV = degrees(wrapPi(atan(vd.x, -vd.z) - uFwdAz));
     vec3 hazeC = band(thV, -0.05, 0.0);
-    hz = pow(hz, 2.8);
+    hz = pow(hz, 3.2);
     col = mix(col, hazeC, clamp(hz, 0.0, 1.0));
   }
 

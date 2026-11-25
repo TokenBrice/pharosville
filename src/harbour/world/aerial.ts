@@ -20,6 +20,8 @@ export const aerialUniforms = {
   uAerial: { value: new THREE.Vector4(0, 0, 0, 0) } as THREE.IUniform<THREE.Vector4>,
   /** the cap this frame: AERIAL_CAP by day, less at night so lamps keep their glow (set with uAerial) */
   uAerialCap: { value: AERIAL_CAP } as THREE.IUniform<number>,
+  /** xyz unit sun direction, w daylight Mie forward-scatter strength (0 at night; strictly time-of-day, never data) */
+  uAerialSun: { value: new THREE.Vector4(0, 1, 0, 0) } as THREE.IUniform<THREE.Vector4>,
 };
 
 /** Called once a frame by the ocean system (it owns the layout's sea frame). */
@@ -29,9 +31,23 @@ export function updateAerial(centerX: number, centerZ: number, harbourR: number,
 }
 
 /**
+ * Called once a frame by SkySystem with the clock's sun direction and night weight (strictly decorative/time-of-day,
+ * identical across all data states so StaleFog stays semantically separate).
+ */
+export function updateAerialSun(sunDir: THREE.Vector3, night: number): void {
+  const sunUp = THREE.MathUtils.smoothstep(sunDir.y, -0.02, 0.08);
+  const lowSun = 1 - THREE.MathUtils.smoothstep(sunDir.y, 0.08, 0.55);
+  const mie = sunUp * (1 - night) * (0.14 + 0.34 * lowSun);
+  aerialUniforms.uAerialSun.value.set(sunDir.x, sunDir.y, sunDir.z, mie);
+}
+
+/**
  * Binds uAerialDensity = uFogDensity and uAerialHaze = uHaze (aliased: no clash with other chunks); needs uHorizon.
- * PERF: the tint's amount is smooth in distance, so it is computed per VERTEX (AERIAL_VERT_GLSL, `hbAerialVert(world)`
- * once vHbWorld is known) and only the mix runs per fragment.
+ * Height-integrated exponential density decay (`exp(-max(wp.y, 0.0) / 85.0)`) lets low distant coasts settle into air
+ * while tall cliffs and the Pharos stay crisp, strictly zero inside `uAerial.z` and capped at `uAerialCap`.
+ * Fragment stage adds a sun-facing Mie forward-scatter lobe (`pow(max(dot(vDir, uAerialSun.xyz), 0.0), 6.0)`) and a
+ * subtle cool receding-layer veil peaking at mid aerial depth (`k * (1.0 - k) * 4.0 * 0.08`).
+ * PERF: distance/height attenuation is computed per vertex (`hbAerialVert`); only the colour mix runs per fragment.
  */
 export const AERIAL_VERT_GLSL = /* glsl */ `
 uniform vec4 uAerial;
@@ -41,20 +57,31 @@ void hbAerialVert(vec3 wp) {
   if (uAerial.w <= 0.0) { vHbAerial = 0.0; return; }
   float kr = smoothstep(uAerial.z, uAerial.w, length(wp.xz - uAerial.xy));
   float camD = length(cameraPosition - wp);
-  float kd = 1.0 - exp(-max(camD - 350.0, 0.0) * uAerialDensity * 1.6);
-  // tall things (tower tops, masts) stay a little clearer; capped (less at night: lamps keep their glow)
-  vHbAerial = min(kr * kd * (1.0 - 0.4 * smoothstep(25.0, 110.0, wp.y)), uAerialCap);
+  float hScale = exp(-max(wp.y, 0.0) / 85.0);
+  float kd = 1.0 - exp(-max(camD - 350.0, 0.0) * uAerialDensity * 1.6 * hScale);
+  vHbAerial = min(kr * kd, uAerialCap);
 }
 `;
 
 export const AERIAL_GLSL = /* glsl */ `
 uniform vec3 uAerialHaze;
+uniform vec4 uAerialSun;
 varying float vHbAerial;
 void hbAerial(inout vec3 c, vec3 wp, float keep) {
   float k = vHbAerial * (1.0 - keep);
   if (k <= 0.0) return;
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c = mix(c, vec3(l), k * 0.6);
-  c = mix(c, mix(uAerialHaze, uHorizon, 0.4), k);
+  c = mix(c, vec3(l), k * 0.58);
+  vec3 air = mix(uAerialHaze, uHorizon, 0.4);
+  if (uAerialSun.w > 1e-4) {
+    vec3 vd = wp - cameraPosition;
+    float vl = length(vd);
+    vec3 vDir = vl > 1e-3 ? vd / vl : vec3(0.0, 0.0, -1.0);
+    float mie = pow(max(dot(vDir, uAerialSun.xyz), 0.0), 6.0) * uAerialSun.w;
+    air += uHorizon * vec3(1.15, 0.92, 0.68) * mie;
+    float veil = smoothstep(0.0, 0.14, uAerialSun.w) * (1.0 - k) * 0.22;
+    air = mix(air, mix(uAerialHaze, uHorizon, 0.25) * vec3(0.86, 0.95, 1.12), veil);
+  }
+  c = mix(c, air, k);
 }
 `;

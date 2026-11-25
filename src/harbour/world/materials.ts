@@ -1,7 +1,7 @@
 import { GLSL_BUMP, GLSL_NOISE, GLSL_PATTERNS } from "./shaders/patterns";
 import type { TerrainShaderPatcher } from "./shaders/terrain";
 import type { EngineContext, PreparationService } from "../engine/types";
-import { GLSL_ENV, GLSL_POOL, GLSL_AO } from "./shaders/lighting";
+import { GLSL_ENV, GLSL_POOL, GLSL_AO, skyIblUniforms } from "./shaders/lighting";
 import { liteShadow } from "./shaders/shadow";
 import { GLSL_LEAF_FALL, GLSL_SEASON } from "./shaders/season";
 import { PATTERN_LEAF, PATTERN_LEAF_EVERGREEN, SNOW_SLOPE, SNOW_LEAF_KEEP, SNOW_CROWN_KEEP } from "./shaders/constants";
@@ -373,7 +373,7 @@ export class HarbourMaterials {
     return {
       uTime, uHemiSky, uHemiGround, uHorizon, uWindowGlow, uLamp, uLens, uNight, uWindowOcc, uNightLift,
       uSnowCover, uWetness, uFoliage, uSeasonPhase, uHbSunDir, uHbSunColor,
-      ...this.pool, ...this.ao, uRimK: this.rimK, ...this.beam, ...lampWaveUniforms, ...landmarkHover(this.uniforms).uniforms,
+      ...this.pool, ...this.ao, uRimK: this.rimK, ...skyIblUniforms, ...this.beam, ...lampWaveUniforms, ...landmarkHover(this.uniforms).uniforms,
     };
   }
 

@@ -4,7 +4,7 @@ import { GUST_GLSL } from "../weather/gust";
 import { swayUniforms } from "./sway";
 import { DRY_SEASON_GLSL, SPRING_TURF_GLSL, STRAW_GLSL } from "./ground-year";
 import { GLSL_NOISE } from "./shaders/patterns";
-import { GLSL_AO, GLSL_ENV, GLSL_POOL } from "./shaders/lighting";
+import { GLSL_AO, GLSL_ENV, GLSL_POOL, skyIblUniforms } from "./shaders/lighting";
 import { liteShadow } from "./shaders/shadow";
 import { CLOUD_SHADOW_GLSL, cloudShadowUniforms } from "../sky/cloud-shadow";
 import { AERIAL_GLSL, AERIAL_VERT_GLSL, aerialUniforms } from "./aerial";
@@ -346,6 +346,7 @@ export function createGroundCoverMaterial(
       lampWaveUniforms,
       cloudShadowUniforms,
       aerialUniforms,
+      skyIblUniforms,
       swayUniforms,
       uniforms,
       {
@@ -523,7 +524,7 @@ export function createGroundCoverMaterial(
     }
     outgoingLight += diffuseColor.rgb * hbPool(vHbWorld, hbGcNw);
     outgoingLight += diffuseColor.rgb * (hbBeamLight(vHbWorld, hbGcNw) * hbOcc + hbPharosFire(vHbWorld, hbGcNw));
-    outgoingLight += max(diffuseColor.rgb, vec3(0.10)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbGcNw.y, 0.0));
+    outgoingLight += max(diffuseColor.rgb, vec3(0.048)) * uNightLift * hbOcc * (0.6 + 0.4 * max(hbGcNw.y, 0.0));
   }
   hbAerial(outgoingLight, vHbWorld, 0.0);
   #include <opaque_fragment>`,

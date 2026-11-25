@@ -126,7 +126,7 @@ void main() {
   // Fade out gracefully past the heart view toward overview so distant silhouettes stay clean
   float distFade = 1.0 - smoothstep(520.0, 1080.0, vCamD);
   // Seamless fade inside the instanced quad boundary so whiskers/ripples never clip against a quad edge
-  float edgeFade = smoothstep(1.0, 0.72, abs(vQuadUv.x)) * smoothstep(1.0, 0.72, abs(vQuadUv.y));
+  float edgeFade = (1.0 - smoothstep(0.72, 1.0, abs(vQuadUv.x))) * (1.0 - smoothstep(0.72, 1.0, abs(vQuadUv.y)));
   if (distFade * edgeFade <= 0.004) discard;
 
   vec2 q = vLocal;
@@ -147,7 +147,8 @@ void main() {
 
   // 1. Crisp dark waterline contact AO meniscus hugging the hull outline
   float menW = clamp(hb * 0.34, 0.24, 0.85);
-  float meniscus = exp(-pow((dM - 0.05) / menW, 2.0)) * smoothstep(-0.42, -0.02, dM);
+  float menD = (dM - 0.05) / menW;
+  float meniscus = exp(-menD * menD) * smoothstep(-0.42, -0.02, dM);
   float underBleed = (1.0 - smoothstep(-0.08, 0.22, dM)) * 0.42;
   float menA = clamp((meniscus * 0.52 + underBleed) * (0.82 + 0.18 * nW.r), 0.0, 0.56) * distFade * edgeFade;
 
@@ -162,15 +163,14 @@ void main() {
     float dWhisk = abs(abs(q.y) - whiskerY);
     float wThick = mix(0.16, 0.62, clamp(s / max(hl * 1.35, 2.0), 0.0, 1.0)) * clamp(hb / 1.7, 0.65, 1.35);
     float aftFade = exp(-max(s, 0.0) / max(hl * 0.88, 2.5));
-    float mainArm = exp(-pow(dWhisk / wThick, 2.0)) * smoothstep(-0.24, 0.14, s) * aftFade;
-    // Secondary outer cutwater whisker at brisk cruise speeds
+    float wU = dWhisk / wThick;
+    float mainArm = exp(-wU * wU) * smoothstep(-0.24, 0.14, s) * aftFade;
     float fastK = smoothstep(1.6, 3.6, spd);
     float outerY = whiskerY + (0.48 + max(s, 0.0) * 0.13) * clamp(hb / 1.8, 0.7, 1.3);
-    float outerArm = exp(-pow((abs(q.y) - outerY) / (wThick * 0.9), 2.0)) * smoothstep(0.15, hl * 0.45, s) * aftFade * fastK * 0.46;
-    // Frothy stem curl right at the cutwater nose
+    float oU = (abs(q.y) - outerY) / (wThick * 0.9);
+    float outerArm = exp(-oU * oU) * smoothstep(0.15, hl * 0.45, s) * aftFade * fastK * 0.46;
     vec2 nose = vec2((q.x - hl * 0.98) / max(hl * 0.15, 0.35), q.y / max(hb * 0.44, 0.34));
     float bowCurl = exp(-dot(nose, nose)) * 0.88;
-    // Advect cellular foam texture aft along the hull with boat speed
     float advN = texture2D(uNoise, vec2(q.x * 0.30 + uTime * spd * 0.22, q.y * 0.38)).b;
     float lacy = 0.28 + 0.72 * smoothstep(0.28, 0.80, advN * 0.60 + nFine.g * 0.50);
     bowFoam = clamp((mainArm * 0.92 + outerArm + bowCurl) * lacy, 0.0, 1.0) * moveK;
@@ -182,7 +182,8 @@ void main() {
   if (stillK > 0.005 && pxFade > 0.01) {
     float sw = 0.5 + 0.5 * sin(hbSwellPhase(vWorld.xz, uTime) + vOarPhase * 0.7);
     float lapPos = 0.14 + 0.32 * sw + (nW.b - 0.5) * 0.14;
-    float lapRing = exp(-pow((dM - lapPos) / 0.20, 2.0)) * (0.35 + 0.65 * sw);
+    float lapD = (dM - lapPos) / 0.20;
+    float lapRing = exp(-lapD * lapD) * (0.35 + 0.65 * sw);
     float broken = smoothstep(0.38, 0.84, foamNoise * 0.85 + nFine.b * 0.32);
     lapFoam = lapRing * broken * stillK * pxFade * 0.22;
   }
@@ -201,15 +202,16 @@ void main() {
       float stHash = fract(sin(idx * 17.13 + sideSign * 31.7 + vOarPhase * 0.01) * 43758.5453);
       float xOar = (uStart + (idx + 0.5) / bankCount * uSpan) * hl + (stHash - 0.5) * 0.28;
       float oarReach = hb + clamp(hb * 0.88, 1.35, 3.0) + (fract(stHash * 7.3) - 0.5) * 0.32;
-      // Match hbOarStroke phase + fore-to-aft wave offset (+ aPivot.x * 0.18)
       float ph = vOarPhase + xOar * 0.18 + (stHash - 0.5) * 0.22;
       float cyc = fract(ph / 6.2831853);
       float xBlade = xOar - cyc * 1.15;
       float rOar = length(vec2(q.x - xBlade, q.y - sideSign * oarReach));
       float rad = 0.26 + cyc * 1.85;
       float ringW = 0.11 + cyc * 0.15;
-      float ring = exp(-pow((rOar - rad) / ringW, 2.0)) * smoothstep(0.0, 0.07, cyc) * pow(max(1.0 - cyc * 1.25, 0.0), 1.45);
-      float catchSplash = exp(-pow(rOar / 0.38, 2.0)) * smoothstep(0.0, 0.04, cyc) * (1.0 - smoothstep(0.08, 0.28, cyc));
+      float rU = (rOar - rad) / ringW;
+      float ring = exp(-rU * rU) * smoothstep(0.0, 0.07, cyc) * pow(max(1.0 - cyc * 1.25, 0.0), 1.45);
+      float cU = rOar / 0.38;
+      float catchSplash = exp(-cU * cU) * smoothstep(0.0, 0.04, cyc) * (1.0 - smoothstep(0.08, 0.28, cyc));
       float oarBreak = 0.35 + 0.65 * smoothstep(0.24, 0.80, foamNoise + 0.18 * nFine.b);
       oarFoam = clamp((ring * 0.58 + catchSplash * 0.82) * oarBreak * (0.72 + 0.28 * fract(stHash * 13.7)), 0.0, 1.0) * galleyK;
     }

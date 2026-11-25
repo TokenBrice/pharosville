@@ -12,6 +12,8 @@ import { antiSolarTh, isDusk, sunElevationDeg, twilightSunAzimuth, twilightWindo
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
 import { bakeCloudAtlas, CLOUD_CELLS } from "./clouds";
 import { cloudShadowUniforms } from "./cloud-shadow";
+import { updateSkyIblTint } from "../world/shaders/lighting";
+import { updateAerialSun } from "../world/aerial";
 import { applySkyPalette, createSkyPaletteUniforms } from "./palette";
 import { bankReveal, seasonBankShape, seasonHighCloud } from "./season-sky";
 import { ensureMotionService, MotionClock } from "../ui/services";
@@ -563,7 +565,11 @@ export class SkySystem implements WorldSystem {
     cs.uCloudShadowG.value.z = brk;
     cs.uCloudShadowS.value.set(wind.z * ((sq?.pos ?? 0) - 1) * 1100, wind.w * ((sq?.pos ?? 0) - 1) * 1100, 1 / 260, 0.32 * sqK * sunUp * (1 - 0.7 * night));
 
-    // ---- band texture for the sea (cheap: 512 x 128)
+    // ---- band texture for the sea (cheap: 512 x 128) and sky-coherent world IBL / aerial sun lobe
+    const lowSunWarmth = (1 - THREE.MathUtils.smoothstep(sunDir.y, 0.04, 0.34))
+      * THREE.MathUtils.smoothstep(sunDir.y, -0.06, 0.02) * (1 - night);
+    updateSkyIblTint(this.coverS, storm, Math.max(this.u.uTwilight.value.x * 0.75, lowSunWarmth), night);
+    updateAerialSun(W.uSunDir.value, night);
     this.band.render(ctx, this.u, this.bandPass, this.bandRT, this.decorativeTime.value);
   }
 

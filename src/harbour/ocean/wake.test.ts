@@ -160,11 +160,17 @@ describe("E12 feathered wakes", () => {
     expect(live.fragmentShader).toContain("kel = (kel + bow * 0.45) * sp;");
     expect(OCEAN_FRAG).toContain("float fKel = smoothstep(0.16, 0.52, live.r * (0.55 + 0.9 * nC.r)) * 0.75 * (1.0 - 0.45 * smoothstep(1.0, 2.5, fp));");
     expect(OCEAN_FRAG).toContain("float fp = length(fwidth(xz));");
-    // every hull and tug stamp in the fleet passes its own stable seed (stamp arguments only)
+    // every hull and tug stamp in the fleet passes its own stable seed (optional ringScale allowed for collar-backed moored hulls)
     const fleet = readFileSync(resolve(__dirname, "../fleet/fleet-system.ts"), "utf8");
     const calls = fleet.match(/wake\.stamp\([^;]*\)/g) ?? [];
     expect(calls.length).toBe(6);
-    for (const call of calls) expect(call).toMatch(/, (?:b\.phi|k \* 1\.7 \+ 0\.5)\)$/);
+    for (const call of calls) expect(call).toMatch(/, (?:b\.phi(?:, ringScale)?|k \* 1\.7 \+ 0\.5)\)$/);
+    // collar ringScale attenuates ONLY the green contact-foam output, never calm/slick or hull occlusion
+    expect(live.fragmentShader).toContain("gl_FragColor = vec4(kel * k, (ring * k * (spd > 0.25 ? 0.45 : 0.7) + lip) * vRing, occl * min(k, 1.0) + meni, slick);");
+    const ringBuf = (field as unknown as { bufRing: Float32Array }).bufRing;
+    svc.stamp(1, 2, 0, 0, 1.5, 0.9, 6, 1.2, 0.32);
+    expect(ringBuf[0]).toBe(1);
+    expect(ringBuf[2]).toBeCloseTo(0.32, 5);
     field.dispose();
   });
 });

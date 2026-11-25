@@ -18,7 +18,7 @@ const SPEC: Array<[number, number, number, number]> = [
 
 export const WAVES: Wave[] = SPEC.map(([off, length, amp, steep]) => {
   const a = BASE_DIR + off, k = (2 * Math.PI) / length;
-  return { dirX: Math.cos(a), dirZ: Math.sin(a), length, amp, steep, k, w: Math.sqrt(G * k) * 0.75 };
+  return { dirX: Math.cos(a), dirZ: Math.sin(a), length, amp, steep, k, w: Math.sqrt(G * k) };
 });
 
 /** Main swell direction (unit x, z) for stylised crest lines. */

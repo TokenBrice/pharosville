@@ -4,6 +4,7 @@ import { FRAG_PARS } from "./shaders/print";
 import { HOVER_SHEEN, FLEET_LIGHTING } from "./shaders/lighting";
 import { patch } from "../engine/shader-patch";
 import { castFadeGlsl, castFadeUniforms } from "../world/shadow-casters";
+import { runupUniforms } from "../world/runup";
 import * as THREE from "three";
 import type { HarbourMaterials } from "../world/materials";
 import type { WorldUniforms } from "../engine/uniforms";
@@ -49,7 +50,13 @@ export interface FleetUniforms {
   uFleetScreen?: THREE.IUniform<THREE.Vector2>;
   /** E04 (O5-I6): the atlas's first monogram slot; from there on a mark is lettering, not a printed logo. */
   uEmblemLetters?: THREE.IUniform<number>;
+  /** Coastal SDF texture + bounds + scene center shared from OceanSystem (vertex-only lookup for coastal wave damping). */
+  uHullSdf?: THREE.IUniform<THREE.Texture>;
+  uHullSdfBounds?: THREE.IUniform<THREE.Vector4>;
+  uHullSceneCenter?: THREE.IUniform<THREE.Vector2>;
 }
+
+const FALLBACK_HULL_SDF = Object.assign(new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1), { needsUpdate: true });
 
 export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, fleet: FleetUniforms): { material: THREE.MeshStandardMaterial; depth: THREE.MeshDepthMaterial } {
   const kit = mats.kit();
@@ -60,16 +67,19 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     baseHook(shader, renderer);
     shader.defines = { ...shader.defines, HB_FLEET: "" };   // world/metal.ts: only unpainted hull trim turns metal
     // (the print and rig uniforms default to a 1000 px DPR-1 screen and no lettering until the fleet binds its own)
-    Object.assign(shader.uniforms, { uFleetScreen: { value: new THREE.Vector2(1000, 1) }, uEmblemLetters: { value: 1e9 }, uHeroEmblems: fleet.uEmblems, uHeroSlots: { value: new THREE.Vector2(-1, -1) } }, fleet,
-      { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime, uLamp: u.uLamp });
+    Object.assign(shader.uniforms, {
+      uFleetScreen: { value: new THREE.Vector2(1000, 1) }, uEmblemLetters: { value: 1e9 }, uHeroEmblems: fleet.uEmblems, uHeroSlots: { value: new THREE.Vector2(-1, -1) },
+      uHullSdf: { value: FALLBACK_HULL_SDF }, uHullSdfBounds: { value: new THREE.Vector4(0, 0, 0, 0) }, uHullSceneCenter: { value: new THREE.Vector2(0, 0) },
+    }, fleet,
+      { uSunDir: u.uSunDir, uSunColor: u.uSunColor, uTime: fleet.uFleetTime, uLamp: u.uLamp, uRunup: runupUniforms.uRunup });
     shader.vertexShader = patch(shader.vertexShader, "#include <batching_pars_vertex>", `#include <batching_pars_vertex>\nuniform float uTime;\n${VERT_PARS}`, { id: "fleet.1.batching_pars_vertex" });
     shader.vertexShader = patch(shader.vertexShader, "#include <beginnormal_vertex>", "hbFleetPose(position, normal);\nvec3 objectNormal = hbFleetN;\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3(tangent.xyz);\n#endif", { id: "fleet.2.beginnormal_vertex" });
     // E27: the rig's hairline floor needs the batch matrix (main's batchingMatrix) for its depth and scale
-    shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", "vec3 transformed = hbFleetP;\n#ifdef USE_BATCHING\n  float hbRigCover = hbRigFloor(transformed, hbFleetN, batchingMatrix);\n  if (hbRigCover < 1.0) vFleetLamp = -hbRigCover;\n#endif", { id: "fleet.3.begin_vertex" });
-    // the kit port derives vHbWorld from instanceMatrix only: add the batch matrix
-    shader.vertexShader = patch(shader.vertexShader, "hbW = instanceMatrix * hbW;\n    #endif", "hbW = instanceMatrix * hbW;\n    #endif\n    #ifdef USE_BATCHING\n      hbW = batchingMatrix * hbW;\n    #endif", { id: "fleet.4.hbW-instanceMatrix-hbW-endif" });
+    shader.vertexShader = patch(shader.vertexShader, "#include <begin_vertex>", "vec3 transformed = hbFleetP;\n#ifdef USE_BATCHING\n  vHullSea.x = batchingMatrix[3].y;\n  float hbRigCover = hbRigFloor(transformed, hbFleetN, batchingMatrix);\n  if (hbRigCover < 1.0) vFleetLamp = -hbRigCover;\n#endif", { id: "fleet.3.begin_vertex" });
+    // the kit port derives vHbWorld from instanceMatrix only: add the batch matrix and sample coastal wave damping at world XZ
+    shader.vertexShader = patch(shader.vertexShader, "hbW = instanceMatrix * hbW;\n    #endif", "hbW = instanceMatrix * hbW;\n    #endif\n    #ifdef USE_BATCHING\n      hbW = batchingMatrix * hbW;\n    #endif\n    vHullSea.y = hbHullDamp(hbW.xz);", { id: "fleet.4.hbW-instanceMatrix-hbW-endif" });
     shader.fragmentShader = patch(shader.fragmentShader, "#include <common>", `#include <common>\n${FRAG_PARS}\n${HOVER_SHEEN}`, { id: "fleet.5.common" });
-    shader.fragmentShader = patch(shader.fragmentShader, "float hbRough;", "hbFleetColor(diffuseColor.rgb);\n  hbHullWaterline(diffuseColor.rgb, vHbLocal, vHbWorld, uTime);\n  float hbRough;", { id: "fleet.6.float-hbRough-" });
+    shader.fragmentShader = patch(shader.fragmentShader, "float hbRough;", "hbFleetColor(diffuseColor.rgb);\n  hbHullWaterline(diffuseColor.rgb, vHbWorld);\n  float hbRough;", { id: "fleet.6.float-hbRough-" });
     shader.fragmentShader = patch(shader.fragmentShader, "diffuseColor.rgb *= hbPattern(hbPid, hbRough, hbBumpH);", "diffuseColor.rgb *= hbPattern(hbPid, hbRough, hbBumpH);\n  hbFleetSurface(hbRough, hbBumpH);", { id: "fleet.6b.hbFleetSurface" });
     // distance tint: the hovered / selected hull and the pennant keep their colour (world/aerial.ts)
     shader.fragmentShader = patch(shader.fragmentShader, "hbAerial(outgoingLight, vHbWorld, 0.0);", "hbAerial(outgoingLight, vHbWorld, max(smoothstep(0.05, 0.5, vFleetMisc.x), step(0.5, vFleetRig.z) * step(vFleetMisc.z, 0.5)));", { id: "fleet.7.hbAerial-outgoingLight-vHbWorld-0-0" });
@@ -77,7 +87,7 @@ export function createFleetMaterials(mats: HarbourMaterials, u: WorldUniforms, f
     shader.fragmentShader = patch(shader.fragmentShader, "#include <opaque_fragment>", FLEET_LIGHTING, { id: "fleet.10.opaque_fragment" });
   };
   // the kit's own key carries its season and Low-tier (kitKey) switches
-  m.customProgramCacheKey = () => `hb_fleet_v14_${kit.customProgramCacheKey()}`;
+  m.customProgramCacheKey = () => `hb_fleet_v15_${kit.customProgramCacheKey()}`;
   mats.track(m);   // recompiles with the kit's Low-tier switch
 
   const depth = new THREE.MeshDepthMaterial();

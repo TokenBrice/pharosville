@@ -17,7 +17,10 @@ export const runupUniforms = {
 
 /** Needs hbIs (GLSL_LEAF_FALL). */
 export const RUNUP_GLSL = /* glsl */ `
+#ifndef HB_DECL_URUNUP
+#define HB_DECL_URUNUP
 uniform vec2 uRunup;
+#endif
 ${SWELL_PHASE_GLSL}
 void hbRunup(inout vec3 alb, inout float rough, vec3 W, vec3 N, float pid) {
 #ifndef HB_FLEET

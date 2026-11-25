@@ -232,6 +232,8 @@ export class PostChain {
   /** Camera distances where tilt-shift starts / reaches full strength (set from the layout presets). */
   tiltNear = 260;
   tiltFar = 700;
+  /** Decision A3: opt-in overview tilt-shift, OFF by default (`?tilt=1` or runtime toggle). */
+  tiltShiftEnabled = typeof location !== "undefined" && new URLSearchParams(location.search).get("tilt") === "1";
   /**
    * The focal subject (01-A6): the Pharos' foot and lantern (world), set by the layout system. The tilt-shift band
    * centres on the tower's screen height, so the miniature's sharp row is the lighthouse, not the sky above it.
@@ -249,6 +251,7 @@ export class PostChain {
     composer.addPass(this.scrub);
     this.gtao = new GtaoEffect(camera);
     this.tiltShift = new TiltShiftEffect({ focusArea: 0.6, feather: 0.38, offset: 0.06, kernelSize: KernelSize.MEDIUM, resolutionScale: 0.5 });
+    this.tiltShift.blendMode.opacity.value = 0;
     this.bloom = new HarbourBloomEffect({ intensity: 0.6, luminanceThreshold: 1.3, luminanceSmoothing: 0.30, mipmapBlur: true, radius: 0.68, levels: 8 });
     this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
     this.lut = new LUT3DEffect(this.gradeLut.texture, { inputColorSpace: THREE.SRGBColorSpace });
@@ -361,22 +364,24 @@ export class PostChain {
     this.bloom.intensity = tod.bloomIntensity;
     this.bloom.luminanceMaterial.threshold = tod.bloomThreshold;
     this.gtao?.syncTimeOfDay(this.cam, tod);
-    // Tilt-shift: a miniature cue at overview zoom only; fades out as you zoom in.
+    // Tilt-shift: opt-in miniature cue at overview zoom (off by default, Decision A3); z still drives vignette.
     const z = THREE.MathUtils.smoothstep(rig.distance, this.tiltNear, this.tiltFar);
-    this.tiltShift.blendMode.opacity.value = z * TILT_OPACITY;
-    this.tiltShift.focusArea = THREE.MathUtils.lerp(0.75, 0.58, z);
-    if (this.tiltFocus && z > 0 && this.tiltDock.length > 0 && tiltBand(this.cam, this.tiltFocus[1], this.tiltDock, this.band)) {
-      // E08: the sharp row is the harbour itself, lantern to docked rows; the miniature softness keeps the frame edges
-      this.tiltShift.offset = (this.band.lo + this.band.hi) * 0.5;
-      this.tiltShift.focusArea = (this.band.hi - this.band.lo) * 0.5 + this.tiltShift.feather;
-    } else if (this.tiltFocus && z > 0) {
-      // tower mid-height and lantern in NDC y (tilt-shift space is -1 bottom … 1 top); keep the lantern inside the
-      // sharp row, never drop the band below its old place (the harbour below stays in the soft fall-off)
-      const yb = this.focusV.copy(this.tiltFocus[0]).project(this.cam).y;
-      const yt = this.focusV.copy(this.tiltFocus[1]).project(this.cam).y;
-      const sharp = this.tiltShift.focusArea - this.tiltShift.feather;
-      const want = Math.max((yb + yt) * 0.5, yt - sharp - 0.06);
-      this.tiltShift.offset = THREE.MathUtils.clamp(Number.isFinite(want) ? want : 0.06, 0.06, 0.5);
+    this.tiltShift.blendMode.opacity.value = this.tiltShiftEnabled ? z * TILT_OPACITY : 0;
+    if (this.tiltShiftEnabled) {
+      this.tiltShift.focusArea = THREE.MathUtils.lerp(0.75, 0.58, z);
+      if (this.tiltFocus && z > 0 && this.tiltDock.length > 0 && tiltBand(this.cam, this.tiltFocus[1], this.tiltDock, this.band)) {
+        // E08: the sharp row is the harbour itself, lantern to docked rows; the miniature softness keeps the frame edges
+        this.tiltShift.offset = (this.band.lo + this.band.hi) * 0.5;
+        this.tiltShift.focusArea = (this.band.hi - this.band.lo) * 0.5 + this.tiltShift.feather;
+      } else if (this.tiltFocus && z > 0) {
+        // tower mid-height and lantern in NDC y (tilt-shift space is -1 bottom … 1 top); keep the lantern inside the
+        // sharp row, never drop the band below its old place (the harbour below stays in the soft fall-off)
+        const yb = this.focusV.copy(this.tiltFocus[0]).project(this.cam).y;
+        const yt = this.focusV.copy(this.tiltFocus[1]).project(this.cam).y;
+        const sharp = this.tiltShift.focusArea - this.tiltShift.feather;
+        const want = Math.max((yb + yt) * 0.5, yt - sharp - 0.06);
+        this.tiltShift.offset = THREE.MathUtils.clamp(Number.isFinite(want) ? want : 0.06, 0.06, 0.5);
+      }
     }
     this.vignette.darkness = 0.32 + 0.12 * z;
     // LUT: regenerate when the grade moved (throttled to 4 Hz while the clock runs).

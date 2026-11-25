@@ -107,8 +107,15 @@ const STORM_BY_BAND: Record<string, number> = { CALM: 0, WATCH: 0, ALERT: 0.55, 
  * A still hull's contact stamp strength by the fleet's storm: in calm water only a faint darkening line (under
  * the ocean's ring-foam threshold, wake.ts G × ocean fRing), building through ALERT to the white rings at WARNING+.
  */
-function contactStrength(storm: number): number {
+export function contactStrength(storm: number): number {
   return 0.3 + 0.6 * THREE.MathUtils.smoothstep(storm, 0.3, 0.8);
+}
+/**
+ * D11 07-M7 aground-on-Shoals surf stamp strength: always strictly > 1.0 and > max contactStrength(1) = 0.9 so
+ * wake.ts never degrades a stranded off-peg hull into a calm mooring ring.
+ */
+export function agroundSurfStrength(surge: number): number {
+  return 1.08 + 0.42 * THREE.MathUtils.clamp(surge, 0, 1);
 }
 const WRECK_KITS = ["wreck_a", "wreck_b", "wreck_c"];
 /** The dead coins with the biggest peak cap get full-size, detailed hulks; the rest lie smaller. */
@@ -375,6 +382,20 @@ export class FleetSystem implements WorldSystem {
     this.uniforms.uHeroSlots = this.atlas.heroSlots;
     this.uniforms.uEmblemGrid.value = this.atlas.grid;
     this.uniforms.uEmblemLetters!.value = this.atlas.letterSlot;
+    const oceanShared = ctx.services.get("ocean")?.shared;
+    if (oceanShared) {
+      this.uniforms.uHullSdf = oceanShared.uSdf;
+      this.uniforms.uHullSdfBounds = oceanShared.uSdfBounds;
+    }
+    const initLayout = ctx.services.get("layout");
+    if (initLayout) {
+      this.uniforms.uHullSceneCenter = {
+        value: new THREE.Vector2(
+          (initLayout.bounds.min[0] + initLayout.bounds.max[0]) / 2,
+          (initLayout.bounds.min[2] + initLayout.bounds.max[2]) / 2,
+        ),
+      };
+    }
     const { material, depth } = createFleetMaterials(getHarbourMaterials(ctx), ctx.uniforms, this.uniforms);
     this.material = material; this.depth = depth;
     this.buildMesh(ctx, 1500);
@@ -1416,25 +1437,38 @@ export class FleetSystem implements WorldSystem {
         if (b.wrecked) this.writeMotion(b.inst, 0, 0, 0, 0); else this.writeMotion(b.inst, mo.fill, mo.shake, lantern, b.row);
       }
 
-      // S-3 dynamic boat-to-water night pools: Titan galleries/temples/rotundas/vaults/USDS brazier (decorative, uLampArrive-gated)
+      // S-3 dynamic boat-to-water night pools + hero GGX glint candidates (all tiers): Titan galleries/temples/rotundas/vaults/USDS brazier
       if (dynPool && glow > 0.02 && b.titan && !b.wrecked && !onWays && (b.visible || b.dist < 1600)) {
         const tk = decorLampK(x, h0 + 2.5, z, glow);
         if (tk > 0.02) {
           const vid = b.variant.id;
           if (vid === "titan_usdt") {
-            dynPool.light(x - fx * b.loa * 0.28, z - fz * b.loa * 0.28, h0 + 3.2, 14, 1.15 * tk, 0.54 * tk, 0.14 * tk);
+            const gx = x - fx * b.loa * 0.28, gz = z - fz * b.loa * 0.28, gy = h0 + 3.2;
+            dynPool.light(gx, gz, gy, 14, 1.15 * tk, 0.54 * tk, 0.14 * tk);
+            dynPool.glint?.(gx, gy, gz, 1.15 * tk, 0.54 * tk, 0.14 * tk, 78, 1.95);
           } else if (vid === "titan_usdc") {
-            dynPool.light(x - fx * b.loa * 0.08, z - fz * b.loa * 0.08, h0 + 3.0, 13, 1.10 * tk, 0.56 * tk, 0.16 * tk);
+            const gx = x - fx * b.loa * 0.08, gz = z - fz * b.loa * 0.08, gy = h0 + 3.0;
+            dynPool.light(gx, gz, gy, 13, 1.10 * tk, 0.56 * tk, 0.16 * tk);
+            dynPool.glint?.(gx, gy, gz, 1.10 * tk, 0.56 * tk, 0.16 * tk, 74, 1.90);
           } else if (vid === "titan_usds") {
-            dynPool.light(x - fx * b.loa * 0.22, z - fz * b.loa * 0.22, h0 + 5.8, 13.5, 1.35 * tk, 0.56 * tk, 0.11 * tk);
+            const gx = x - fx * b.loa * 0.22, gz = z - fz * b.loa * 0.22, gy = h0 + 5.8;
+            dynPool.light(gx, gz, gy, 13.5, 1.35 * tk, 0.56 * tk, 0.11 * tk);
+            dynPool.glint?.(gx, gy, gz, 1.35 * tk, 0.56 * tk, 0.11 * tk, 88, 2.05);
           } else if (vid === "titan_xaut") {
-            dynPool.light(x, z, h0 + 2.4, 12, 1.25 * tk, 0.62 * tk, 0.12 * tk);
+            const gy = h0 + 2.4;
+            dynPool.light(x, z, gy, 12, 1.25 * tk, 0.62 * tk, 0.12 * tk);
+            dynPool.glint?.(x, gy, z, 1.25 * tk, 0.62 * tk, 0.12 * tk, 74, 1.90);
           } else if (vid === "titan_usdg") {
-            dynPool.light(x + fx * b.loa * 0.22, z + fz * b.loa * 0.22, h0 + 2.6, 10, 0.95 * tk, 0.46 * tk, 0.12 * tk);
-            dynPool.light(x - fx * b.loa * 0.24, z - fz * b.loa * 0.24, h0 + 2.6, 10, 0.95 * tk, 0.46 * tk, 0.12 * tk);
+            const g1x = x + fx * b.loa * 0.22, g1z = z + fz * b.loa * 0.22, gy = h0 + 2.6;
+            const g2x = x - fx * b.loa * 0.24, g2z = z - fz * b.loa * 0.24;
+            dynPool.light(g1x, g1z, gy, 10, 0.95 * tk, 0.46 * tk, 0.12 * tk);
+            dynPool.light(g2x, g2z, gy, 10, 0.95 * tk, 0.46 * tk, 0.12 * tk);
+            dynPool.glint?.(g1x, gy, g1z, 0.95 * tk, 0.46 * tk, 0.12 * tk, 68, 1.80);
           } else {
             const rad = Math.min(13, Math.max(10, b.loa * 0.48));
-            dynPool.light(x - fx * b.loa * 0.25, z - fz * b.loa * 0.25, h0 + 2.6, rad, 1.05 * tk, 0.48 * tk, 0.13 * tk);
+            const gx = x - fx * b.loa * 0.25, gz = z - fz * b.loa * 0.25, gy = h0 + 2.6;
+            dynPool.light(gx, gz, gy, rad, 1.05 * tk, 0.48 * tk, 0.13 * tk);
+            dynPool.glint?.(gx, gy, gz, 1.05 * tk, 0.48 * tk, 0.13 * tk, 72, 1.85);
           }
         }
       }
@@ -1450,7 +1484,10 @@ export class FleetSystem implements WorldSystem {
           const dk = dynPool && glow > 0.02 ? decorLampK(x, h0 + 2, z, glow) : 0;
           const mh = lampAt(v.masthead.x, v.masthead.y, v.masthead.z);
           rl.add(mh.x, mh.y, mh.z, LAMP_WARM.r * 5, LAMP_WARM.g * 5, LAMP_WARM.b * 5, 0.42, h0, 0.6);
-          if (dk > 0.02) dynPool!.light(mh.x, mh.z, mh.y, 4.5, LAMP_WARM.r * 0.75 * dk, LAMP_WARM.g * 0.75 * dk, LAMP_WARM.b * 0.75 * dk);
+          if (dk > 0.02) {
+            dynPool!.light(mh.x, mh.z, mh.y, 4.5, LAMP_WARM.r * 0.75 * dk, LAMP_WARM.g * 0.75 * dk, LAMP_WARM.b * 0.75 * dk);
+            if (b.dist < 700) dynPool!.glint?.(mh.x, mh.y, mh.z, LAMP_WARM.r * 0.95 * dk, LAMP_WARM.g * 0.95 * dk, LAMP_WARM.b * 0.95 * dk, 58, b.titan ? 1.7 : 1.35);
+          }
           const bx = v.bowCleat.x * 0.7, by = v.bowCleat.y + 0.55, bz = v.beam * 0.42;
           const pl = lampAt(bx, by, -bz);
           rl.add(pl.x, pl.y, pl.z, LAMP_RED.r * 3.2, LAMP_RED.g * 3.2, LAMP_RED.b * 3.2, 0.3, h0, 0.7);
@@ -1470,7 +1507,12 @@ export class FleetSystem implements WorldSystem {
           const mh = ph !== PH_ANCHORED ? lampAt(v.sternLantern.x, v.sternLantern.y, v.sternLantern.z)
             : b.struck ? lampAt(v.bowCleat.x * 0.8, v.bowCleat.y + 1.2, 0) : lampAt(v.masthead.x, v.masthead.y, v.masthead.z);
           rl.add(mh.x, mh.y, mh.z, LAMP_WARM.r * k, LAMP_WARM.g * k, LAMP_WARM.b * k, ph === PH_ANCHORED ? 0.26 : 0.17, h0, 0.5, true);
-          if (dynPool && glow > 0.02) dynPool.light(mh.x, mh.z, mh.y, 4.0, LAMP_WARM.r * 0.48 * glowK, LAMP_WARM.g * 0.48 * glowK, LAMP_WARM.b * 0.48 * glowK);
+          if (dynPool && glow > 0.02) {
+            dynPool.light(mh.x, mh.z, mh.y, 4.0, LAMP_WARM.r * 0.48 * glowK, LAMP_WARM.g * 0.48 * glowK, LAMP_WARM.b * 0.48 * glowK);
+            if (b.dist < 460 && (b.titan || ph === PH_ANCHORED)) {
+              dynPool.glint?.(mh.x, mh.y, mh.z, LAMP_WARM.r * 0.72 * glowK, LAMP_WARM.g * 0.72 * glowK, LAMP_WARM.b * 0.72 * glowK, 52, b.titan ? 1.45 : 1.15);
+            }
+          }
         }
       }
 
@@ -1484,10 +1526,16 @@ export class FleetSystem implements WorldSystem {
           if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8, b.phi);
           if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5, b.phi); st.moving++; }
           else if (ph === PH_ANCHORED && !b.reserve) {
-            // aground: surf breaks and churns round the hull, pulsing with the swell
+            // aground on the Shoals (07-M7): swell-pulsing reef-surf collar clearing the hull silhouette (strength strictly > 1.0)
             const surge = 0.5 + 0.5 * Math.sin(time * 1.4 + b.phi);
-            wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.6 + 0.4 * surge), 1.4 + 0.6 * surge, b.loa * 0.7, b.phi);
-          } else if (tier.contact || b.visible) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, contactK, b.loa * 0.5, b.phi);
+            wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * (1.36 + 0.24 * surge), agroundSurfStrength(surge), b.loa * 0.64, b.phi);
+          } else if (tier.contact || b.visible) {
+            // Attenuate ONLY the green contact-foam channel for hulls backed by an active High-tier WakeCollar,
+            // preserving full contactK for storm calm/slick logic and hull shadow/caustic occlusion.
+            const hasCollar = Boolean(wakeCollars?.enabled && b.visible);
+            const ringScale = hasCollar ? 0.32 + 0.68 * THREE.MathUtils.smoothstep(b.dist, 520, 1080) : 1;
+            wake.stamp(x, z, fx * 0.002, fz * 0.002, hb, contactK, b.loa * 0.5, b.phi, ringScale);
+          }
           st.wakes++;
         }
         // S-3 wakeCollars: High-only screen-res waterline AO meniscus, bow mustache & galley oar-splash ripples

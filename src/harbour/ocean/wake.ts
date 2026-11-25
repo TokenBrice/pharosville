@@ -25,7 +25,7 @@ import { COPY_FRAG } from "../engine/shaders/copy";
 export interface WakeService {
   clear(renderer: THREE.WebGLRenderer): void;
   preparationEntries(): PreparationEntry[];
-  stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number, seed?: number): void;
+  stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number, seed?: number, ringScale?: number): void;
   readonly texture: THREE.Texture;
   readonly live: THREE.Texture;
   /** [minX, minZ, maxX, maxZ] */
@@ -37,8 +37,9 @@ const MAX_STAMPS = 2048;
 const STAMP_VERT = /* glsl */ `
 attribute vec4 sA; // x, z, heading (rad, bow along (sin h, cos h)), halfLength
 attribute vec4 sB; // halfBeam, speed (m/s), strength, seed
+attribute float sRing; // contact-foam ring attenuation (0..1; scales G only, leaving calm/slick/occlusion untouched)
 uniform vec4 uBounds; uniform float uTrail; uniform vec2 uLee;
-varying vec2 vL; varying vec4 vS; varying vec2 vW; varying float vSeed;
+varying vec2 vL; varying vec4 vS; varying vec2 vW; varying float vSeed; varying float vRing;
 void main() {
   float hl = sA.w, hb = sB.x, spd = sB.y;
   float moving = step(0.25, spd);
@@ -65,7 +66,7 @@ void main() {
     w = sA.xy + vec2(s, c) * l.x + vec2(c, -s) * l.y;                 // l.x along bow, l.y to starboard
   }
   vL = l; vS = vec4(hl, hb, spd, sB.z);
-  vW = w - sA.xy; vSeed = sB.w;
+  vW = w - sA.xy; vSeed = sB.w; vRing = sRing;
   vec2 uv = (w - uBounds.xy) / (uBounds.zw - uBounds.xy);
   gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
   if (uTrail > 0.5 && moving < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // moored hulls leave no trail
@@ -74,7 +75,7 @@ void main() {
 const STAMP_FRAG = /* glsl */ `
 uniform float uTrail, uDt;
 uniform vec2 uLee, uSwell;
-varying vec2 vL; varying vec4 vS; varying vec2 vW; varying float vSeed;
+varying vec2 vL; varying vec4 vS; varying vec2 vW; varying float vSeed; varying float vRing;
 void main() {
   float hl = vS.x, hb = vS.y, spd = vS.z, k = vS.w;
   vec2 q = vL;
@@ -135,7 +136,7 @@ void main() {
     slick = exp(-sl * sl) * smoothstep(-hl * 0.6, hl * 0.2, along)
           * (1.0 - smoothstep(len * 0.4, len, along)) * calm;
   }
-  gl_FragColor = vec4(kel * k, ring * k * (spd > 0.25 ? 0.45 : 0.7) + lip, occl * min(k, 1.0) + meni, slick);
+  gl_FragColor = vec4(kel * k, (ring * k * (spd > 0.25 ? 0.45 : 0.7) + lip) * vRing, occl * min(k, 1.0) + meni, slick);
 }`;
 
 const DECAY_FRAG = /* glsl */ `
@@ -161,6 +162,7 @@ export class WakeField implements WakeService {
   private readonly prevClear = new THREE.Color();
   private readonly attrA: THREE.InstancedBufferAttribute;
   private readonly attrB: THREE.InstancedBufferAttribute;
+  private readonly attrRing: THREE.InstancedBufferAttribute;
   private readonly geo: THREE.InstancedBufferGeometry;
   private readonly trailMat: THREE.ShaderMaterial;
   private readonly liveMat: THREE.ShaderMaterial;
@@ -171,6 +173,7 @@ export class WakeField implements WakeService {
   private readonly copy = new FullscreenPass(COPY_FRAG, { uSource: { value: null } }, { name: "hb_wake_resize" });
   private readonly bufA: Float32Array;
   private readonly bufB: Float32Array;
+  private readonly bufRing: Float32Array;
   /** Downwind direction (world xz, unit) for the lee slicks; the ocean system sets it from the weather. */
   readonly lee = new THREE.Vector2(0.8, -0.6);
 
@@ -185,13 +188,16 @@ export class WakeField implements WakeService {
 
     this.bufA = new Float32Array(MAX_STAMPS * 4);
     this.bufB = new Float32Array(MAX_STAMPS * 4);
+    this.bufRing = new Float32Array(MAX_STAMPS);
     this.attrA = new THREE.InstancedBufferAttribute(this.bufA, 4).setUsage(THREE.DynamicDrawUsage);
     this.attrB = new THREE.InstancedBufferAttribute(this.bufB, 4).setUsage(THREE.DynamicDrawUsage);
+    this.attrRing = new THREE.InstancedBufferAttribute(this.bufRing, 1).setUsage(THREE.DynamicDrawUsage);
     this.geo = new THREE.InstancedBufferGeometry();
     this.geo.setAttribute("position", new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
     this.geo.setIndex([0, 1, 2, 0, 2, 3]);
     this.geo.setAttribute("sA", this.attrA);
     this.geo.setAttribute("sB", this.attrB);
+    this.geo.setAttribute("sRing", this.attrRing);
     this.geo.instanceCount = 0;
     const uBounds = { value: new THREE.Vector4(...bounds) };
     const common = {
@@ -243,7 +249,7 @@ export class WakeField implements WakeService {
     for (const target of previous) target.dispose();
   }
 
-  stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number, seed = 0): void {
+  stamp(x: number, z: number, vx: number, vz: number, halfWidth: number, strength: number, halfLength?: number, seed = 0, ringScale = 1): void {
     if (this.count >= MAX_STAMPS) return;
     const spd = Math.hypot(vx, vz);
     const i = this.count++;
@@ -251,6 +257,7 @@ export class WakeField implements WakeService {
     this.bufA[i * 4 + 2] = spd > 1e-3 ? Math.atan2(vx, vz) : 0;
     this.bufA[i * 4 + 3] = halfLength ?? halfWidth * 3.1;
     this.bufB[i * 4] = halfWidth; this.bufB[i * 4 + 1] = spd; this.bufB[i * 4 + 2] = strength; this.bufB[i * 4 + 3] = seed;
+    this.bufRing[i] = ringScale;
   }
 
   /**
@@ -276,6 +283,7 @@ export class WakeField implements WakeService {
     if (this.count > 0) {
       this.attrA.clearUpdateRanges(); this.attrA.addUpdateRange(0, this.count * 4); this.attrA.needsUpdate = true;
       this.attrB.clearUpdateRanges(); this.attrB.addUpdateRange(0, this.count * 4); this.attrB.needsUpdate = true;
+      this.attrRing.clearUpdateRanges(); this.attrRing.addUpdateRange(0, this.count); this.attrRing.needsUpdate = true;
     }
     const prevTarget = renderer.getRenderTarget(), prevAuto = renderer.autoClear;
     const prevClear = renderer.getClearColor(this.prevClear), prevAlpha = renderer.getClearAlpha();

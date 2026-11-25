@@ -1,5 +1,6 @@
 import { FLEET_FAR_FRAG } from "../fleet-far";
 import { SAIL_LIGHT_GLSL } from "../sail-light-glsl";
+import { WAVES } from "../../ocean/waves";
 
 /**
  * E04 coins as print (O5-I1/I2/I6, O1-I2; operator ruling V1, a promise amendment of v1.4.1's full-contrast emblems):
@@ -27,6 +28,10 @@ export function printContrast(discRenderPx: number, dpr: number, highlight = 0):
 }
 
 const f1 = (x: number) => x.toFixed(2);
+const f6 = (x: number) => x.toFixed(6);
+const HULL_WAVE_SUM = WAVES.map(
+  (wv) => `${f6(wv.amp)} * sin(${f6(wv.k)} * dot(vec2(${f6(wv.dirX)}, ${f6(wv.dirZ)}), p) - ${f6(wv.w)} * t)`,
+).join(" + ");
 
 export const FRAG_PARS = /* glsl */ `
 uniform sampler2D uEmblems;
@@ -46,6 +51,7 @@ varying vec4 vFleetUV;
 varying vec4 vFleetRig;
 varying vec4 vSailDye;
 varying float vFleetLamp;
+varying vec2 vHullSea;
 varying vec4 vPaintA;
 varying vec4 vPaintB;
 varying vec4 vPaintC;
@@ -308,30 +314,32 @@ void hbFleetColor(inout vec3 c) {
     }
   }
 }
-// universal dynamic waterline wetness, submerged darkening & organic olive-bronze algae across ALL opaque hulls
-// (including all 10 Titans & _BRAND boot-tops; dry Wreck Cove hulks & ships on launching ways stay dry)
-void hbHullWaterline(inout vec3 c, vec3 localPos, vec3 worldPos, float time) {
+#ifndef HB_DECL_URUNUP
+#define HB_DECL_URUNUP
+uniform vec2 uRunup;
+#endif
+float hbHullWaveY(vec2 p, float t, float amp) {
+  return (${HULL_WAVE_SUM}) * amp;
+}
+void hbHullWaterline(inout vec3 c, vec3 worldPos) {
   if (vFleetMisc.z > 0.5 || vFleetRig.z > 0.5 || vPaintA.w >= 4.5) return;
   float hSlot = hbFleetSlot();
   if (hSlot < -1.5 && abs(hSlot + 3.0) > 0.5) return;
-  float afloat = 1.0 - smoothstep(0.6, 1.8, worldPos.y - localPos.y);
+  float hullOriginY = vHullSea.x;
+  float afloat = 1.0 - smoothstep(0.6, 1.8, hullOriginY);
   if (afloat <= 0.001) return;
   float u = vPaintC.x;
-  #ifdef HB_LITE
-    float waveWash = 0.06;
-  #else
-    float waveWash = 0.08 + 0.07 * sin(u * 11.0 + time * 1.4 + worldPos.x * 0.25)
-                          + 0.04 * sin(u * 23.0 - time * 2.1 + worldPos.z * 0.3);
-  #endif
-  float wlH = localPos.y - waveWash;
-  float aa = fwidth(localPos.y) + 1e-3;
+  float waveH = hbHullWaveY(worldPos.xz, uRunup.y, uRunup.x * vHullSea.y);
+  float wlH = worldPos.y - waveH - 0.04;
+  float aa = fwidth(worldPos.y) + 1e-3;
   float wet = (1.0 - smoothstep(-0.04, 0.34 + aa, wlH)) * afloat;
   float sub = (1.0 - smoothstep(-0.18 - aa, 0.02 + aa, wlH)) * afloat;
   hbFleetWaterline = max(hbFleetWaterline, wet);
   c *= (1.0 - 0.28 * wet * wet) * (1.0 - 0.14 * sub);
   #ifndef HB_LITE
     float algNoise = 0.65 + 0.35 * sin(u * 29.0 + sin(u * 7.0) * 2.5);
-    float algae = exp(-pow((wlH - 0.06) / max(0.085, aa), 2.0)) * algNoise * afloat;
+    float algU = (wlH - 0.06) / max(0.085, aa);
+    float algae = exp(-algU * algU) * algNoise * afloat;
     c = mix(c, vec3(0.065, 0.082, 0.042), algae * 0.34);
   #endif
 }

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { getBeamUniforms } from "../beam/uniforms";
+import { abortable } from "../engine/transport";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
 import { extraEnabled } from "../engine/extras";
 import { acquireFxTextures, type FxTextures } from "../ocean/textures";
@@ -8,9 +9,9 @@ import { getHarbourMaterials } from "../world/materials";
 import {
   DEWS_LEVELS, moonbowLight, recoveryLine, seasonForMonth, snowShare, targetsForLevel, weightsForSeason, WeatherDirector, type DirectorInput, type Season, type SeasonWeights, type WeatherBand, type WeatherState,
 } from "./director";
-import { Lightning, type StrikeEvent } from "./lightning";
-import { MAX_SPRAY, PRECIP_BUDGET, Precipitation } from "./precip";
-import { Rainbow } from "./rainbow";
+import type { Lightning, StrikeEvent } from "./lightning";
+import type { PrecipBudget, Precipitation } from "./precip";
+import type { Rainbow } from "./rainbow";
 import { ensureGustService } from "./gust";
 import { dewRime, dewUniforms } from "./dew";
 import { moonAge, moonIllumination, parseMoonOverride } from "../season/calendar";
@@ -67,10 +68,12 @@ export class WeatherSystem implements WorldSystem {
   readonly name = "weather";
   private readonly director = new WeatherDirector();
   private readonly q = new URLSearchParams(location.search);
-  private precip!: Precipitation;
-  private lightning!: Lightning;
-  private rainbow!: Rainbow;
-  private fx!: FxTextures;
+  private precip: Precipitation | null = null;
+  private precipBudget!: Record<"high" | "medium" | "low", PrecipBudget>;
+  private maxSpray = 0;
+  private lightning: Lightning | null = null;
+  private rainbow: Rainbow | null = null;
+  private fx: FxTextures | null = null;
   private clock: MotionClock | null = null;
   private fallbackWeights: SeasonWeights = [0, 1, 0, 0];
   private snapped = false;
@@ -88,15 +91,24 @@ export class WeatherSystem implements WorldSystem {
   private readonly input: DirectorInput = { level: null, band: null, snowShare: 0, sunUp: 0, time: 0 };
 
   async init(ctx: EngineContext): Promise<void> {
-    this.fx = await acquireFxTextures(ctx);
+    const [precipMod, lightningMod, rainbowMod] = await abortable(
+      Promise.all([import("./precip"), import("./lightning"), import("./rainbow")]),
+      ctx.signal,
+    );
+    ctx.signal?.throwIfAborted();
+    const fx = await acquireFxTextures(ctx);
+    if (ctx.signal?.aborted) { fx.release(); ctx.signal.throwIfAborted(); }
+    this.fx = fx;
+    this.precipBudget = precipMod.PRECIP_BUDGET;
+    this.maxSpray = precipMod.MAX_SPRAY;
     const mats = getHarbourMaterials(ctx);
-    this.precip = new Precipitation({
+    this.precip = new precipMod.Precipitation({
       uAOTex: mats.ao.uAOTex, uAOBounds: mats.ao.uAOBounds, uPoolTex: mats.pool.uPoolTex, uPoolBounds: mats.pool.uPoolBounds,
       uWindowGlow: ctx.uniforms.uWindowGlow, beam: getBeamUniforms(ctx), noise: this.fx.noise,
     });
-    this.lightning = new Lightning();
+    this.lightning = new lightningMod.Lightning();
     this.lightning.forced = import.meta.env.DEV && this.q.get("strike") === "1";
-    this.rainbow = new Rainbow();
+    this.rainbow = new rainbowMod.Rainbow();
     ctx.scene.add(this.precip.fall, this.precip.ground, this.lightning.mesh, this.rainbow.mesh);
     this.fallbackWeights = weightsForSeason(calendarSeason(this.q));
 
@@ -106,18 +118,19 @@ export class WeatherSystem implements WorldSystem {
       get state() { return sys.director.state; },
       get band() { return sys.director.state.band; },
       get precip() { return { rain: sys.director.state.rain, snow: sys.director.state.snow }; },
-      get lightning() { return sys.lightning.flash; },
+      get lightning() { return sys.lightning?.flash ?? 0; },
       get rainbow() { return sys.director.state.rainbow; },
       get gloom() { return sys.director.state.gloom; },
       get flash() { return sys.flash; },
       get wind() { return sys.windVec; },
       get recoveryLine() { return recoveryLine(sys.director.state.recovery, sys.elapsed); },
-      onLightning: (cb) => this.lightning.onStrike(cb),
+      onLightning: (cb) => this.lightning?.onStrike(cb) ?? (() => {}),
     };
     ctx.services.set("weather", svc);
   }
 
   async prepareIdle(ctx: EngineContext): Promise<void> {
+    if (!this.precip || !this.lightning || !this.rainbow) return;
     // Uniform-only rain/snow/flash/recovery transitions share these four programs. No weather is advanced.
     const root = new THREE.Group();
     root.children = [this.precip.fall, this.precip.ground, this.lightning.mesh, this.rainbow.mesh];
@@ -170,12 +183,13 @@ export class WeatherSystem implements WorldSystem {
     }
     // evenly thinned to the budget, deterministic
     const keep: Array<[number, number, number, number]> = [];
-    const stride = Math.max(1, out.length / MAX_SPRAY);
-    for (let i = 0; i < out.length && keep.length < MAX_SPRAY; i += stride) keep.push(out[Math.floor(i)]);
-    this.precip.setSprayAnchors(keep);
+    const stride = Math.max(1, out.length / this.maxSpray);
+    for (let i = 0; i < out.length && keep.length < this.maxSpray; i += stride) keep.push(out[Math.floor(i)]);
+    this.precip?.setSprayAnchors(keep);
   }
 
   update(frame: FrameState, ctx: EngineContext): void {
+    if (!this.precip || !this.lightning || !this.rainbow) return;
     const dt = frame.delta;
     this.elapsed += dt;
     const U = ctx.uniforms;
@@ -292,7 +306,7 @@ export class WeatherSystem implements WorldSystem {
     const spray = THREE.MathUtils.smoothstep(s.windNow, 0.62, 0.98) * (s.level == null ? 0 : THREE.MathUtils.smoothstep(s.level, 2.5, 3.6));
     this.precip.update({
       camera: cam, distance: rig.distance, target: this.target, rain: s.rain, snow: s.snow, wind: this.windVec,
-      spray, flash: this.lightning.flash, ambient: this.amb, time: ptime, viewport: this.viewport, budget: PRECIP_BUDGET[tier],
+      spray, flash: this.lightning.flash, ambient: this.amb, time: ptime, viewport: this.viewport, budget: this.precipBudget[tier],
       ...this.sheets(ctx, frame, tier),
     });
 
@@ -309,10 +323,14 @@ export class WeatherSystem implements WorldSystem {
   }
 
   dispose(ctx: EngineContext): void {
-    this.precip.dispose();
-    this.lightning.dispose();
-    this.rainbow.dispose();
-    this.fx.release();
+    this.precip?.dispose();
+    this.precip = null;
+    this.lightning?.dispose();
+    this.lightning = null;
+    this.rainbow?.dispose();
+    this.rainbow = null;
+    this.fx?.release();
+    this.fx = null;
     ctx.services.delete("weather");
   }
 }

@@ -77,8 +77,7 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   fTrail = max(fTrail, lace * smoothstep(0.06, 0.3, trail) * (1.0 - smoothstep(0.55, 0.95, trail)) * (0.35 + 0.4 * nB.g) * (1.0 - laceFar * 0.6));
   float fKel = smoothstep(0.16, 0.52, live.r * (0.55 + 0.9 * nC.r)) * 0.75 * (1.0 - 0.45 * smoothstep(1.0, 2.5, fp));
   float fRing = smoothstep(0.3, 0.75, live.g * (0.35 + 1.0 * nC.b)) * 0.5;
-  // E08: a hull's contact ring has a fixed world width; under ~2 px (overview) it would print a white outline, so it
-  // fades with the pixel footprint (the coast's own contact line is kept)
+  fRing *= mix(1.0, 0.72 + 0.38 * foamWeb, smoothstep(0.18, 0.55, zm.r));
   fRing *= 1.0 - smoothstep(0.45, 0.9, length(fwidth(xz)));
   float caps = smoothstep(0.82 - 0.1 * storm, 0.97, crestH * 0.55 + nB.a * 0.55 + nC.r * 0.12) * uSea.z * smoothstep(25.0, 90.0, coast);
   // scattered whitecap flecks riding the crests across the whole bay once the declared sea is choppy
@@ -122,14 +121,13 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   // overview: the coast foam stays under the bloom threshold (no glowing outline round the island, 01-A6)
   foamLit *= 1.0 - 0.38 * smoothstep(310.0, 500.0, uCameraPos.y) * (1.0 - uNight);
 
-  // gentle organic swell relief + §6.1.4 Turner storm chiaroscuro (-28% deepened troughs, silver-flashed wave backs)
   {
     float sk = smoothstep(0.05, 0.55, amp) * (1.0 - far01 * 0.65);
-    col += mix(sky, uSunColor * 0.12, 0.25) * smoothstep(0.25, 0.95, organicCrest) * mix(0.075, 0.18, stormSea) * sk;
-    col *= 1.0 - mix(0.09, 0.28, stormSea) * (1.0 - smoothstep(-0.85, 0.18, organicCrest)) * sk;
+    col += mix(sky, uSunColor * 0.12, 0.25) * smoothstep(0.30, 0.95, organicCrest) * mix(0.05, 0.14, stormSea) * sk;
+    col *= 1.0 - mix(0.05, 0.16, stormSea) * (1.0 - smoothstep(-0.85, 0.18, organicCrest)) * sk;
   }
   float cShade = hbCloudShadow(xz);
-  col *= mix(1.0, cShade, 0.55);
+  col *= mix(1.0, cShade, 0.55 * (1.0 - 0.85 * uNight));
   col += glint * overcast * (1.0 - foam) * cShade;
   col += beam * (1.0 - foam * 0.5);
   // thin aerated foam fringes tint toward translucent turquoise-jade (or dark bottle-jade aprons in storms) before thick crests turn white

@@ -175,18 +175,18 @@ void main() {
     vec2 dir = len > 1e-3 ? d / len : vec2(0.0, -1.0);
     vec2 n = vec2(-dir.y, dir.x);
     vec4 c = mix(c0, c1, corner.y);
-    // depth-layered atmospheric rain curtains: closer streaks stay slimmer & softer, mid-distance sweeps into squall veils
     float depthFrac = clamp((depth - uNearFade) / max(uBoxSize.x * 1.1, 1.0), 0.0, 1.0);
     vec2 wDir = length(uWindV) > 1e-3 ? normalize(uWindV) : vec2(0.8, -0.6);
     vec2 wPerp = vec2(-wDir.y, wDir.x);
     float curtain = 0.45 + 0.55 * (0.5 + 0.5 * sin(dot(p.xz, wPerp) * 0.017 + dot(p.xz, wDir) * 0.006 - uPTime * 0.42));
-    curtain = mix(curtain, 1.0, uDownpour * 0.6);
-    float layerFade = mix(smoothstep(0.0, 0.18, depthFrac) * (1.0 - smoothstep(0.68, 1.0, depthFrac) * 0.55), 1.0, uDownpour);
+    curtain = mix(curtain, 0.62 + 0.38 * curtain, uDownpour);
+    float nearSoft = smoothstep(0.0, mix(0.18, 0.12, uDownpour), depthFrac);
+    float farSoft = 1.0 - smoothstep(0.66, 1.0, depthFrac) * mix(0.55, 0.32, uDownpour);
+    float layerFade = nearSoft * farSoft;
     float w = uSize.x * (0.72 + 0.48 * h) * mix(0.85, 1.15, depthFrac);
     c.xy += n * corner.x * w / uViewport * c.w;
     gl_Position = c;
     vUv = corner;
-    // soft translucent rain streaks grouped in depth-layered sweeping curtains (never harsh white film scratches)
     vA = fade * layerFade * curtain * uRainAlpha * (0.42 + 0.58 * h) * smoothstep(1.2, 7.5, len);
   }
 }`;
@@ -210,13 +210,11 @@ void main() {
     a = pow(body, 1.4) * vA;
     c = vLight * 1.3 + 0.05;
   } else {
-    // feathery Gaussian cross-section + soft tapered comet streak catching ambient sky light subtly
-    float across = exp(-vUv.x * vUv.x * 4.4);
-    float along = smoothstep(0.0, 0.64, vUv.y) * (1.0 - smoothstep(0.84, 1.0, vUv.y));
-    a = across * along * vA;
-    // softly compress hot sunlit highlights so drizzle reads as misty translucent water, not white scratches
-    vec3 softL = vLight / (1.0 + vLight * 0.48);
-    c = mix(softL * vec3(0.88, 0.93, 1.0) * (0.74 + 0.28 * vSeed), vLight, uDownpour);
+    float across = exp(-vUv.x * vUv.x * mix(4.4, 5.2, uDownpour));
+    float along = smoothstep(0.0, 0.68, vUv.y) * (1.0 - smoothstep(0.82, 1.0, vUv.y));
+    a = across * along * vA * mix(1.0, 0.86, uDownpour);
+    vec3 softL = vLight / (1.0 + vLight * mix(0.48, 0.34, uDownpour));
+    c = softL * mix(vec3(0.88, 0.93, 1.0), vec3(0.84, 0.90, 0.98), uDownpour) * (0.74 + 0.26 * vSeed);
   }
   if (a < 0.002) discard;
   gl_FragColor = vec4(c, a);
@@ -230,6 +228,7 @@ attribute vec4 aSeed;          // splash: xz seed, phase (>= 0), size | spray: p
 attribute vec4 aAnchor;        // spray: x, z, outward nx, nz | splash: unused
 uniform float uSplashRate;     // splash cycles per second
 uniform float uSplashSize;     // ring radius (m)
+uniform float uDownpour;       // 0 drizzle .. 1 downpour
 uniform float uSpray;          // spray strength 0..1
 uniform vec2 uWindV;
 uniform float uSprayScale;     // plume size (m)
@@ -288,17 +287,15 @@ void main() {
     vec2 q = vec2(pHash(aSeed.xy * 97.0 + id * 1.37), pHash(aSeed.yx * 89.0 + id * 2.11));
     vec2 xz = uBoxMin.xz + q * uBoxSize.xz;
     float y = groundAt(xz) + 0.05;
-    float r = uSplashSize * (0.20 + 0.88 * life) * (0.76 + 0.44 * aSeed.w);
+    float r = min(uSplashSize * (0.20 + 0.88 * life) * (0.76 + 0.44 * aSeed.w), 0.24);
     vec3 wp = vec3(xz.x + corner.x * r, y, xz.y + corner.y * r);
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
     vUv = corner;
     vec3 qb = (vec3(xz.x, 0.0, xz.y) - uBoxMin) / uBoxSize;
     float edge = smoothstep(0.0, 0.08, qb.x) * (1.0 - smoothstep(0.92, 1.0, qb.x)) * smoothstep(0.0, 0.08, qb.z) * (1.0 - smoothstep(0.92, 1.0, qb.z));
     float camDist = length(vec3(xz.x, y, xz.y) - uCam);
-    // (a ring fades once it is a few pixels wide: a downpour's larger rings carry further)
-    float distFade = 1.0 - smoothstep(260.0, 680.0, camDist * 0.46 / max(uSplashSize, 0.46));
-    // (a downpour's rings fade linearly, as they spread, so they read; drizzle rings vanish quickly)
-    vA = mix((1.0 - life) * (1.0 - life), 1.0 - life, smoothstep(0.46, 1.2, uSplashSize)) * smoothstep(0.0, 0.10, life) * edge * distFade;
+    float distFade = 1.0 - smoothstep(180.0, 440.0, camDist);
+    vA = mix((1.0 - life) * (1.0 - life), 1.0 - life, uDownpour) * smoothstep(0.0, 0.10, life) * edge * distFade;
     vKind = 0.0;
     vLife = life;
     vLight = dropLight(vec3(xz.x, y + 1.0, xz.y));
@@ -308,7 +305,7 @@ void main() {
 const GROUND_FRAG = /* glsl */ `
 uniform sampler2D uNoise;
 uniform float uSplashAlpha;
-uniform float uSplashSize;
+uniform float uDownpour;
 varying vec2 vUv;
 varying float vA;
 varying float vKind;
@@ -333,10 +330,7 @@ void main() {
     vec3 jetTint = mix(vec3(0.92, 0.96, 1.02), vec3(0.98, 1.0, 1.02), jetCore);
     c = softL * jetTint + mix(0.025, 0.055, jetCore);
   } else {
-    // delicate double-concentric expanding ripple rings + fleeting central impact droplet
-    // a downpour's larger rings keep a stroke that still reads at the heart view (drizzle keeps the fine line)
-    float big = smoothstep(0.46, 1.2, uSplashSize);
-    float rw = mix(0.058, 0.11, big);
+    float rw = mix(0.058, 0.095, uDownpour);
     float rd1 = (d - 0.84) / rw;
     float rd2 = (d - 0.52) / 0.072;
     float ring1 = exp(-rd1 * rd1);
@@ -344,7 +338,7 @@ void main() {
     float drop = (1.0 - smoothstep(0.0, 0.15, d)) * (1.0 - smoothstep(0.0, 0.20, vLife)) * 0.85;
     a = (ring1 * 0.78 + ring2 + drop) * vA * uSplashAlpha * step(d, 1.0);
     vec3 softL = vLight / (1.0 + vLight * 0.52);
-    c = mix(softL * vec3(0.90, 0.95, 1.02) + 0.015, vLight * 1.3 + 0.02, big);
+    c = mix(softL * vec3(0.90, 0.95, 1.02) + 0.015, softL * vec3(0.96, 0.99, 1.04) + 0.02, uDownpour);
   }
   if (a < 0.002) discard;
   gl_FragColor = vec4(c, a);
@@ -407,7 +401,7 @@ export class Precipitation {
       uPoolTex: shared.uPoolTex, uPoolBounds: shared.uPoolBounds, uWindowGlow: shared.uWindowGlow,
       uAOTex: shared.uAOTex, uAOBounds: shared.uAOBounds,
       uBeamPos: shared.beam.uBeamPos, uBeamCol: shared.beam.uBeamCol, uBeamAngle: shared.beam.uBeamAngle, uBeamShape: shared.beam.uBeamShape,
-      uWindV: { value: new THREE.Vector2() },
+      uWindV: { value: new THREE.Vector2() }, uDownpour: { value: 0 },
     };
 
     // ---- falling rain + snow
@@ -423,7 +417,7 @@ export class Precipitation {
         ...this.common,
         uSnowFrac: { value: 0 }, uFall: { value: new THREE.Vector3(60, 6, 0.036) }, uSize: { value: new THREE.Vector2(0.7, 0.6) },
         uViewport: { value: new THREE.Vector2(800, 500) }, uNearFade: { value: 100 },
-        uRainAlpha: { value: 0.16 }, uDownpour: { value: 0 }, uSnowDrive: { value: 0 },
+        uRainAlpha: { value: 0.16 }, uSnowDrive: { value: 0 },
         uDepthK: { value: new THREE.Vector4(1e9, 2e9, 1, 1) }, uSheets: { value: new THREE.Vector4() },
       },
       transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
@@ -513,7 +507,7 @@ export class Precipitation {
     // barely a whisper in WATCH drizzle, heavy slate-silver curtains in WARNING/DANGER
     fu.uRainAlpha.value = 0.036 + 0.44 * Math.pow(rain01, 1.35);
     const downpour = Math.max(0, (rain01 - 0.3) / 0.7);
-    fu.uDownpour.value = downpour;
+    this.common.uDownpour.value = downpour;
 
     const gu = this.groundMat.uniforms;
     const nSplash = Math.round(f.budget.splash * Math.min(1, rain01 * 1.15));
@@ -523,9 +517,8 @@ export class Precipitation {
     this.ground.visible = this.groundGeo.instanceCount > 0;
     gu.uSpray.value = f.spray;
     gu.uSprayScale.value = 0.0048 * S;
-    // realistically scaled concentric ripple rings (~0.25-0.45 m radius) instead of giant 1.4-2 m cartoon rings
-    // a downpour's rings grow so the storm reads at the heart view (drizzle keeps the small rings)
-    gu.uSplashSize.value = Math.min(0.46, Math.max(0.26, 0.00058 * S)) * (1 + 3.0 * downpour * downpour);
+    // realistically scaled concentric ripple radii (shader hard-caps rendered radius <= 0.24 m, diameter <= 0.48 m)
+    gu.uSplashSize.value = Math.min(0.21, Math.max(0.14, 0.00030 * S)) * (1 + 0.14 * downpour);
     gu.uSplashAlpha.value = 0.09 + 0.6 * Math.pow(rain01, 1.1);
   }
 

@@ -23,8 +23,10 @@ import { createWorldUniforms } from "../engine/uniforms";
 import { seaHour } from "./sea-tone";
 import { extraEnabled } from "../engine/extras";
 import { MirrorPass, OCEAN_FRAG_MIRROR } from "./mirror-pass";
-import { WakeCollars } from "./wake-collars";
+import type { WakeCollars } from "./wake-collars";
 import type { WakeCollarService } from "../engine/services";
+import { abortable } from "../engine/transport";
+import { MAX_NIGHT_GLINTS } from "../lights/dyn-pool";
 
 /**
  * OCEAN: one large sea plane (fine grid over the sea bounds, a stretched far ring beyond), an unlit
@@ -53,10 +55,16 @@ export interface OceanService {
   /** P6 (identity): the sea's own clock, swell scale and SDF, so overlays on the water (chart lettering) ride the same swell. */
   /** P6 (identity): signed coast distance (m) at world (x, z) from the sea SDF; > 0 is open water. */
   coastAt(x: number, z: number): number;
-  /** S-2: bind the live High-only dynamic night light pool RT (null restores the 1×1 black fallback with intensity 0). */
-  bindDynPool?(tex: THREE.Texture | null, intensity: number): void;
+  /** Swell coastal damping factor (0..1) at world (x, z), matching OCEAN_VERT and hullHeights. */
+  dampAt(x: number, z: number): number;
+  /** S-2: bind the live High-only dynamic night light pool RT and its target-centered bounds (null restores the 1×1 black fallback with intensity 0). */
+  bindDynPool?(tex: THREE.Texture | null, intensity: number, bounds?: Bounds4): void;
+  /** Bind up to 16 hero nocturnal waterfront/pierhead/brazier/riding glint lights (pos+reach, rgb+prominence). */
+  bindNightGlints?(posArr: readonly THREE.Vector4[], colArr: readonly THREE.Vector4[], count: number): void;
   readonly shared: { uTime: THREE.IUniform<number>; uSea: THREE.IUniform<THREE.Vector4>; uSdf: THREE.IUniform<THREE.Texture>; uSdfBounds: THREE.IUniform<THREE.Vector4> };
 }
+
+export { MAX_NIGHT_GLINTS };
 
 const GRID_N = 256;
 const FAR_EXTENT = 7000;
@@ -119,7 +127,7 @@ export class OceanSystem implements WorldSystem {
   /** The layout-bounds centre (uSceneCenter): the SDF's mainland fade is about it (E02). */
   private scx = 0;
   private scz = 0;
-  private fx!: FxTextures;
+  private fx: FxTextures | null = null;
   private state: SeaState = 1;
   private readonly seaU = { value: new THREE.Vector4(SEA_STATES[1].amp, SEA_STATES[1].chop, SEA_STATES[1].caps, SEA_STATES[1].bands) };
   private readonly seaGoal = new THREE.Vector4().copy(this.seaU.value);
@@ -150,10 +158,15 @@ export class OceanSystem implements WorldSystem {
     this.bx0 = this.bounds[0]; this.bz0 = this.bounds[1];
     this.scx = (layout.bounds.min[0] + layout.bounds.max[0]) / 2; this.scz = (layout.bounds.min[2] + layout.bounds.max[2]) / 2;
     this.bw = this.bounds[2] - this.bounds[0]; this.bh = this.bounds[3] - this.bounds[1];
-    this.fx = await acquireFxTextures(ctx);
+    const { WakeCollars } = await abortable(import("./wake-collars"), ctx.signal);
+    ctx.signal?.throwIfAborted();
+    const fx = await acquireFxTextures(ctx);
+    if (ctx.signal?.aborted) { fx.release(); ctx.signal.throwIfAborted(); }
+    this.fx = fx;
 
     // sea SDF: the baked PNG when it exists, else generated now from the layout (same encoding)
     const loaded = await loadSdf(ctx, layout.sea?.sdf ?? "/harbour/sea-sdf.webp");
+    if (ctx.signal?.aborted) { this.fx.release(); this.fx = null; ctx.signal.throwIfAborted(); }
     if (loaded) {
       this.sdfTex = loaded.tex; this.coastR = loaded.coast; this.sdfSize = loaded.size;
     } else {
@@ -202,7 +215,7 @@ export class OceanSystem implements WorldSystem {
         uZones: { value: (this.zoneTex = buildZoneMask((layout as { seaZones?: SeaZoneLike[] }).seaZones, this.bounds)) },
         uWake: { value: this.wake.texture }, uWakeLive: { value: this.wake.live },
         uWakeBounds: { value: new THREE.Vector4(...this.bounds) },
-        uNoise: { value: this.fx.noise }, uRipple: { value: this.fx.ripple },
+        uNoise: { value: fx.noise }, uRipple: { value: fx.ripple },
         uAbyss: col(SEA_PALETTE.abyss), uDeep: col(SEA_PALETTE.deep), uMid: col(SEA_PALETTE.mid), uShallow: col(SEA_PALETTE.shallow),
         uShoal: col(SEA_PALETTE.shoal), uSunlitShoal: col(SEA_PALETTE.sunlitShoal), uFoamCol: col(SEA_PALETTE.foam), uFoamNight: col(SEA_PALETTE.foamNight),
         ...skyShared,
@@ -214,9 +227,13 @@ export class OceanSystem implements WorldSystem {
         uGust: ensureGustService(ctx).uniform,
         // the lights system's top-down pool RT, read back along the view ray as the town's reflection
         uPoolTex: getHarbourMaterials(ctx).pool.uPoolTex, uPoolBounds: getHarbourMaterials(ctx).pool.uPoolBounds,
-        // S-2 seam: dynamic boat/Titan night water pools (1x1 black fallback until W2 binds the real RT)
+        // S-2 seam: dynamic boat/Titan night water pools (1x1 black fallback until LightsSystem binds the real RT)
         uDynPoolTex: { value: (this.dynPoolFallback = Object.assign(new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1), { needsUpdate: true })) },
         uDynPool: { value: new THREE.Vector4(0, 0, 0, 0) },
+        uDynPoolBounds: { value: new THREE.Vector4(...this.bounds) },
+        uNightGlintPos: { value: Array.from({ length: MAX_NIGHT_GLINTS }, () => new THREE.Vector4()) },
+        uNightGlintCol: { value: Array.from({ length: MAX_NIGHT_GLINTS }, () => new THREE.Vector4()) },
+        uNightGlintCount: { value: 0 },
         uWindowGlow: W.uWindowGlow,
         uLampArrive: lampWaveUniforms.uLampArrive,
         // the weather director: rain rings / melting snowflakes on the water
@@ -259,9 +276,10 @@ export class OceanSystem implements WorldSystem {
     const quality = ctx.services.get("quality");
     if (quality) {
       const lite = (tier: string) => {
+        const high = tier === "high";
         this.lite = tier === "low";
-        this.mirror?.setActive(tier === "high", tier === "low");
-        this.collars.setActive(tier === "high");
+        this.mirror?.setActive(high, tier === "low");
+        this.collars.setActive(high);
         this.syncFeatures();
       };
       lite(quality.tier);
@@ -311,9 +329,21 @@ export class OceanSystem implements WorldSystem {
         out[3] *= this.dampAt(x + px, z + pz); out[4] *= this.dampAt(x - px, z - pz);
       },
       coastAt: (x, z) => this.coastAt(x, z),
-      bindDynPool: (tex, intensity) => {
+      dampAt: (x, z) => this.dampAt(x, z),
+      bindDynPool: (tex, intensity, bounds) => {
         this.material.uniforms.uDynPoolTex.value = tex ?? this.dynPoolFallback;
         (this.material.uniforms.uDynPool.value as THREE.Vector4).x = tex ? intensity : 0;
+        if (bounds) (this.material.uniforms.uDynPoolBounds.value as THREE.Vector4).set(bounds[0], bounds[1], bounds[2], bounds[3]);
+      },
+      bindNightGlints: (posArr, colArr, count) => {
+        const n = Math.min(MAX_NIGHT_GLINTS, Math.max(0, Math.floor(count)));
+        const dstPos = this.material.uniforms.uNightGlintPos.value as THREE.Vector4[];
+        const dstCol = this.material.uniforms.uNightGlintCol.value as THREE.Vector4[];
+        for (let i = 0; i < n; i++) {
+          dstPos[i].copy(posArr[i]);
+          dstCol[i].copy(colArr[i]);
+        }
+        this.material.uniforms.uNightGlintCount.value = n;
       },
       shared: { uTime: this.seaTime, uSea: this.seaU, uSdf: this.material.uniforms.uSdf, uSdfBounds: this.material.uniforms.uSdfBounds },
     };
@@ -441,17 +471,21 @@ export class OceanSystem implements WorldSystem {
 
   dispose(ctx: EngineContext): void {
     this.unsubQuality?.();
+    this.unsubQuality = null;
     if (this.mirror) { ctx.composer.removePass(this.mirror); this.mirror.dispose(); this.mirror = null; }
-    this.collars.dispose();
-    ctx.scene.remove(this.mesh);
-    this.mesh.geometry.dispose();
-    this.material.dispose();
-    this.wake.dispose();
-    this.sdfTex.dispose();
+    this.collars?.dispose();
+    if (this.mesh) {
+      ctx.scene.remove(this.mesh);
+      this.mesh.geometry.dispose();
+    }
+    this.material?.dispose();
+    this.wake?.dispose();
+    this.sdfTex?.dispose();
     this.zoneTex?.dispose();
     this.dynPoolFallback?.dispose();
     this.dynPoolFallback = null;
-    this.fx.release();
+    this.fx?.release();
+    this.fx = null;
     ctx.services.delete("ocean");
     ctx.services.delete("wake");
     ctx.services.delete("wakeCollars");

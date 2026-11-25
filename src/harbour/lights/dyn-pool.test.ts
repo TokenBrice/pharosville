@@ -5,7 +5,7 @@ import type { EngineContext } from "../engine/types";
 import { createWorldUniforms } from "../engine/uniforms";
 import { CameraRig } from "../engine/camera-rig";
 import { TIERS, type QualitySettings } from "../engine/quality";
-import { DYN_POOL_RES, DynPool } from "./dyn-pool";
+import { DYN_POOL_RES, DYN_POOL_SNAP, DynPool, dynPoolBoundsFor } from "./dyn-pool";
 import { LightsSystem } from "./lights-system";
 
 function fakeRenderer() {
@@ -27,7 +27,8 @@ function fakeRenderer() {
 }
 
 describe("DynPool (§6.3.2, High-only D-7)", () => {
-  it("allocates its 512×512 RGBA16F RT only on High and disposes it immediately on leaving High", () => {
+  it("allocates its 1024×1024 RGBA16F RT only on High and disposes it immediately on leaving High", () => {
+    expect(DYN_POOL_RES).toBe(1024);
     const pool = new DynPool([-400, -400, 400, 400]);
     expect(pool.enabled).toBe(false);
     expect(pool.target).toBeNull();
@@ -37,7 +38,7 @@ describe("DynPool (§6.3.2, High-only D-7)", () => {
     pool.light(10, 20, 4, 12, 1.0, 0.7, 0.3);
     expect(pool.pendingCount).toBe(0);
 
-    // Entering High allocates 512×512 RGBA16F
+    // Entering High allocates 1024×1024 RGBA16F
     pool.setActive(true);
     expect(pool.enabled).toBe(true);
     expect(pool.target).not.toBeNull();
@@ -54,6 +55,27 @@ describe("DynPool (§6.3.2, High-only D-7)", () => {
     pool.dispose();
   });
 
+  it("updates bounds and uBounds via setBounds without mutating caller arrays, and centers on rig.target", () => {
+    const initial: [number, number, number, number] = [-640, -640, 640, 640];
+    const pool = new DynPool(initial);
+    pool.setBounds([-128, -96, 112, 144]);
+    expect(pool.bounds).toEqual([-128, -96, 112, 144]);
+    expect(initial).toEqual([-640, -640, 640, 640]); // decoupled from wake bounds
+
+    // Quantization by rig distance (half-extents 160 / 360 / 540 m) and 16 m snapping
+    expect(DYN_POOL_SNAP).toBe(16);
+    expect(dynPoolBoundsFor(23, -19, 200)).toEqual([16 - 160, -16 - 160, 16 + 160, -16 + 160]);
+    expect(dynPoolBoundsFor(23, -19, 650)).toEqual([16 - 360, -16 - 360, 16 + 360, -16 + 360]);
+    expect(dynPoolBoundsFor(23, -19, 900)).toEqual([16 - 540, -16 - 540, 16 + 540, -16 + 540]);
+
+    // Hero glint candidate buffer works across all tiers even when the High-only RT is inactive
+    pool.glint(12, 3.5, -18, 1.1, 0.6, 0.2, 74, 1.9);
+    expect(pool.glintCount).toBe(1);
+    pool.clearGlints();
+    expect(pool.glintCount).toBe(0);
+    pool.dispose();
+  });
+
   it("renders 1 instanced draw ONLY when active && windowGlow > 0.02 && count > 0, then clears lights", () => {
     const pool = new DynPool([-400, -400, 400, 400]);
     const r = fakeRenderer();
@@ -66,13 +88,13 @@ describe("DynPool (§6.3.2, High-only D-7)", () => {
     pool.light(10, 20, 4, 12, 1.0, 0.7, 0.3);
     expect(pool.pendingCount).toBe(1);
     const dayRes = pool.render(r as unknown as THREE.WebGLRenderer, 0.01);
-    expect(dayRes).toEqual({ texture: null, intensity: 0 });
+    expect(dayRes).toEqual({ texture: null, intensity: 0, bounds: [-400, -400, 400, 400] });
     expect(r.render).not.toHaveBeenCalled();
     expect(pool.pendingCount).toBe(0);
 
     // Night with 0 lights: zero draws
     const emptyRes = pool.render(r as unknown as THREE.WebGLRenderer, 1.0);
-    expect(emptyRes).toEqual({ texture: null, intensity: 0 });
+    expect(emptyRes).toEqual({ texture: null, intensity: 0, bounds: [-400, -400, 400, 400] });
     expect(r.render).not.toHaveBeenCalled();
 
     // Night with pushed lights: 1 instanced draw, renderer state restored, lights cleared
@@ -81,6 +103,7 @@ describe("DynPool (§6.3.2, High-only D-7)", () => {
     const nightRes = pool.render(r as unknown as THREE.WebGLRenderer, 0.8);
     expect(nightRes.texture).toBe(pool.texture);
     expect(nightRes.intensity).toBe(1);
+    expect(nightRes.bounds).toEqual([-400, -400, 400, 400]);
     expect(r.render).toHaveBeenCalledOnce();
     expect(r.clear).toHaveBeenCalledOnce();
     expect(r.getRenderTarget()).toBe(prev);
@@ -92,7 +115,7 @@ describe("DynPool (§6.3.2, High-only D-7)", () => {
     pool.dispose();
   });
 
-  it("wires dynPool service in LightsSystem over wake bounds and binds/unbinds ocean uDynPoolTex by tier and glow", () => {
+  it("wires dynPool service in LightsSystem centered on rig.target (not camera.position) and binds/unbinds ocean uDynPoolTex by tier and glow", () => {
     const camera = new THREE.PerspectiveCamera();
     const scene = new THREE.Scene();
     let changed: ((settings: QualitySettings, dpr: number) => void) | undefined;
@@ -100,11 +123,16 @@ describe("DynPool (§6.3.2, High-only D-7)", () => {
     const r = fakeRenderer();
     const bindDynPool = vi.fn();
     const wakeBounds = [-640, -640, 640, 640] as [number, number, number, number];
+    const rig = new CameraRig(camera);
+    rig.target.set(34, 0, -46);
+    rig.distance = 650;
+    camera.position.set(500, 300, 500);
+    const expectedBounds = dynPoolBoundsFor(34, -46, 650);
     const ctx = {
       camera,
       scene,
       renderer: r,
-      rig: new CameraRig(camera),
+      rig,
       uniforms: createWorldUniforms(),
       services: new Map<string, unknown>([
         ["motion", { reduced: false }],
@@ -129,9 +157,11 @@ describe("DynPool (§6.3.2, High-only D-7)", () => {
     bindDynPool.mockClear();
     lights.update({ elapsed: 0.016, delta: 0.016, nowMs: 32 }, ctx);
     expect(r.render).not.toHaveBeenCalled();
-    expect(bindDynPool).toHaveBeenLastCalledWith(null, 0);
+    expect(bindDynPool).toHaveBeenLastCalledWith(null, 0, expectedBounds);
+    expect((svc as DynPool).bounds).toEqual(expectedBounds);
+    expect(wakeBounds).toEqual([-640, -640, 640, 640]); // wake bounds untouched
 
-    // High tier at night: draws 1 instanced pass and binds live texture to ocean
+    // High tier at night: draws 1 instanced pass and binds live texture + target-centered bounds to ocean
     quality.settings = TIERS.high;
     changed?.(TIERS.high, 1);
     svc!.light(12, -8, 6, 12, 1, 0.75, 0.35);
@@ -139,7 +169,7 @@ describe("DynPool (§6.3.2, High-only D-7)", () => {
     bindDynPool.mockClear();
     lights.update({ elapsed: 0.016, delta: 0.016, nowMs: 32 }, ctx);
     expect(r.render).toHaveBeenCalledOnce();
-    expect(bindDynPool).toHaveBeenLastCalledWith((svc as DynPool).texture, 1);
+    expect(bindDynPool).toHaveBeenLastCalledWith((svc as DynPool).texture, 1, expectedBounds);
 
     // Leaving High unbinds BEFORE disposing the RT
     bindDynPool.mockClear();

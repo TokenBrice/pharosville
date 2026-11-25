@@ -84,15 +84,21 @@ describe("atmospheric rain, splashes and storm lightning", () => {
     expect(fallMat.uniforms.uRainAlpha.value).toBeLessThan(0.08);
     expect(groundMat.uniforms.uSplashAlpha.value).toBeLessThan(0.14);
 
-    // Realistic drizzle ring radii (~0.25-0.46 m) at close, heart, and overview distances; a downpour's rings grow
-    // so the storm still reads at the heart view
+    // Realistic splash ring diameters strictly <= 0.48 m (shader caps rendered radius <= 0.24 m after seed/life multipliers)
+    expect(groundMat.vertexShader).toContain("min(uSplashSize * (0.20 + 0.88 * life) * (0.76 + 0.44 * aSeed.w), 0.24)");
     for (const distance of [220, 650, 1300]) {
       p.update({ ...baseFrame, distance });
-      expect(groundMat.uniforms.uSplashSize.value).toBeGreaterThanOrEqual(0.25);
-      expect(groundMat.uniforms.uSplashSize.value).toBeLessThanOrEqual(0.46);
+      const drizzleSize = groundMat.uniforms.uSplashSize.value as number;
+      expect(drizzleSize).toBeGreaterThanOrEqual(0.14);
+      expect(drizzleSize).toBeLessThanOrEqual(0.21);
+      expect(2 * Math.min(drizzleSize * 1.08 * 1.2, 0.24)).toBeLessThanOrEqual(0.48);
+      expect(groundMat.uniforms.uDownpour.value).toBe(0);
       p.update({ ...baseFrame, distance, rain: 1.0, spray: 0.9 });
-      expect(groundMat.uniforms.uSplashSize.value).toBeGreaterThanOrEqual(0.6);
-      expect(groundMat.uniforms.uSplashSize.value).toBeLessThanOrEqual(1.9);
+      const stormSize = groundMat.uniforms.uSplashSize.value as number;
+      expect(stormSize).toBeGreaterThanOrEqual(0.15);
+      expect(stormSize).toBeLessThanOrEqual(0.24);
+      expect(2 * Math.min(stormSize * 1.08 * 1.2, 0.24)).toBeLessThanOrEqual(0.48);
+      expect(groundMat.uniforms.uDownpour.value).toBeCloseTo(1.0, 5);
     }
 
     // DANGER storm: heavy rain curtains and visible (never opaque) splash rings

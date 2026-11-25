@@ -337,3 +337,74 @@ describe("D11 analytical lights skip the lamp round and the arrival beat", () =>
     }
   });
 });
+
+describe("Phase 0 nocturnal fidelity: close pillar retirement and hero GGX night glints", () => {
+  it("retires flat y=1.1 pillar quads inside camD < 560 m on High while preserving them on Medium and Low", () => {
+    const { ctx, publish } = lightContext("high");
+    const lights = new LightsSystem();
+    lights.init(ctx);
+    const pillars = ctx.scene.getObjectByName("harbour-light-pillars") as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+    expect(pillars.material.vertexShader).toContain("float closeFade = mix(1.0, smoothstep(360.0, 560.0, camD), uPillarCloseFade);");
+    expect(pillars.material.vertexShader).toContain("closeFade > 0.001");
+    expect(pillars.material.uniforms.uPillarCloseFade.value).toBe(1);
+    publish(TIERS.medium);
+    expect(pillars.material.uniforms.uPillarCloseFade.value).toBe(0);
+    publish(TIERS.low);
+    expect(pillars.material.uniforms.uPillarCloseFade.value).toBe(0);
+    lights.dispose(ctx);
+  });
+
+  it("selects up to 16 (High) / 8 (Med) / 4 (Low) waterfront, beacon and dynamic fleet/Titan hero glints, excludes inland riding lamps, and clears by day", () => {
+    const { ctx, publish } = lightContext("high");
+    const bindNightGlints = vi.fn();
+    ctx.services.set("ocean", { bindNightGlints } as never);
+    // Ground field: z <= 0 is open water (-2 m), z > 0 is inland (+4 m)
+    ctx.services.set("ground", {
+      texture: new THREE.DataTexture(new Uint8Array(4), 1, 1),
+      bounds: [-200, -200, 200, 200],
+      heightAt: (_x: number, z: number) => (z <= 0 ? -2 : 4),
+    } as never);
+    const lights = new LightsSystem();
+    lights.init(ctx);
+    const store = getLightsStore(ctx);
+    const dynPool = ctx.services.get("dynPool")!;
+    for (let i = 0; i < 6; i++) store.add("window", [i * 5, 4, 0]);
+    for (let i = 0; i < 4; i++) store.add("hearth", [i * 5, 3, 10]);
+    for (let i = 0; i < 4; i++) store.add("harbourlight", [20 + i * 10, 6, 0]);
+    for (let i = 0; i < 6; i++) store.add("pierhead", [-20 - i * 8, 5, 0]);
+    for (let i = 0; i < 4; i++) store.add("brazier", [0, 8, -25 - i * 8]);
+    // Inland riding light (e.g. folk lantern at z = 60, > 10 m from water) must be excluded from water glints
+    store.add("riding", [0, 2.5, 60]);
+    // Waterfront riding lights (z = -15) are eligible
+    for (let i = 0; i < 4; i++) store.add("riding", [10 + i * 6, 3, -15]);
+
+    // Daytime: zero hero night glints
+    ctx.uniforms.uWindowGlow.value = 0.01;
+    dynPool.glint?.(5, 3.2, -5, 1.2, 0.55, 0.14, 78, 2.0);
+    lights.update({ elapsed: 0, delta: 0.016, nowMs: 16 }, ctx);
+    expect(bindNightGlints).toHaveBeenLastCalledWith(expect.any(Array), expect.any(Array), 0);
+
+    // Night across tiers: High=16, Medium=8, Low=4; a prominent fleet Titan submitted via dynPool.glint wins a slot even on Medium/Low
+    ctx.uniforms.uWindowGlow.value = 1;
+    for (const [tier, expected] of [["high", 16], ["medium", 8], ["low", 4]] as const) {
+      publish(TIERS[tier]);
+      bindNightGlints.mockClear();
+      dynPool.glint?.(2, 3.2, -2, 1.35, 0.56, 0.11, 88, 2.5);
+      lights.update({ elapsed: 0.016, delta: 0.016, nowMs: 32 }, ctx);
+      expect(bindNightGlints).toHaveBeenCalledOnce();
+      const [posArr, colArr, count] = bindNightGlints.mock.calls[0] as [THREE.Vector4[], THREE.Vector4[], number];
+      expect(count).toBe(expected);
+      let sawTitan = false;
+      for (let i = 0; i < count; i++) {
+        expect(posArr[i].z).not.toBe(60); // inland folk lantern excluded
+        expect(posArr[i].w).toBeGreaterThanOrEqual(48);
+        expect(colArr[i].x + colArr[i].y + colArr[i].z).toBeGreaterThan(0);
+        if (Math.abs(posArr[i].x - 2) < 1e-4 && Math.abs(posArr[i].z + 2) < 1e-4) sawTitan = true;
+      }
+      expect(sawTitan).toBe(true);
+    }
+
+    lights.dispose(ctx);
+    expect(bindNightGlints).toHaveBeenLastCalledWith(expect.any(Array), expect.any(Array), 0);
+  });
+});
