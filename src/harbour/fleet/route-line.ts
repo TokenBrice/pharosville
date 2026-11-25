@@ -123,16 +123,21 @@ export class RouteLine {
     if (id === this.id) return;
     this.id = id;
     this.itinerary = undefined;
-    this.backing = false;
     this.refresh = 0;
-    this.drawT = 0;
+    if (id !== null) this.drawT = 0;
   }
 
   /** Per frame. `landed`: the camera has finished its glide (the line draws on only then). */
   update(dt: number, landed: boolean, reduced: boolean, boat: [number, number] | null): void {
     const want = this.id && boat ? 1 : 0;
     this.k += (want - this.k) * (reduced ? 1 : 1 - Math.exp(-dt * 6));
-    if (!want && this.k < 0.01) { this.k = 0; if (this.mesh) this.mesh.visible = false; return; }
+    if (!want && this.k < 0.01) {
+      this.k = 0;
+      this.disposeMesh();
+      this.backing = false;
+      this.itinerary = undefined;
+      return;
+    }
     if (this.id && (this.refresh -= dt) <= 0) {
       this.rebuild(this.read(this.id));
       this.refresh = this.backing ? BACKING_REFRESH_S : REFRESH_S;

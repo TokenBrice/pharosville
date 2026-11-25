@@ -78,4 +78,12 @@ describe("Pilot's Chart tokens", () => {
       }
     }
   });
+
+  it("keeps .hb-pill unwashed so active search rows and night panels never double-stack or drop below 4.5:1", () => {
+    const pill = ui.match(/\.hb-pill\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(pill).toContain("background: none;");
+    expect(pill).not.toMatch(/background:\s*var\(--wash/);
+    expect(contrast(DAY.get("--brass-ink")!, over(DAY.get("--wash-2")!, DAY.get("--paper")!))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(NIGHT.get("--brass-ink")!, NIGHT.get("--paper")!)).toBeGreaterThanOrEqual(4.5);
+  });
 });

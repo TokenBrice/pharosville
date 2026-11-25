@@ -14,7 +14,7 @@
  */
 import { PHAROSVILLE_ENDPOINT_REGISTRY } from "@shared/lib/pharosville-endpoint-registry";
 import { FRESHNESS_RATIOS } from "@shared/lib/status-thresholds";
-import type { EndpointKey, HarbourModel } from "../model/types";
+import { isCoreBoat, type EndpointKey, type HarbourModel } from "../model/types";
 import { landmarkFact, stationFact } from "./facts";
 import { money } from "./format";
 import { PLACE_NAME } from "./places";
@@ -94,7 +94,7 @@ export function watchLandmarks(model: HarbourModel | null, nowMs: number): Watch
 }
 
 export function modelWatch(model: HarbourModel | null, nowMs: number): WatchStop[] {
-  return rankWatch((model?.boats ?? []).filter((b) => b.state !== "wrecked").map((b) => ({ id: b.id, symbol: b.symbol, supply: b.supply, prevDay: b.supplyPrevDay ?? null, maiden: b.maiden, activeDepeg: b.activeDepeg, pegDeviationBps: b.pegDeviationBps })), watchSources(model, nowMs), watchLandmarks(model, nowMs));
+  return rankWatch((model?.boats ?? []).filter((b) => isCoreBoat(b) && b.state !== "wrecked").map((b) => ({ id: b.id, symbol: b.symbol, supply: b.supply, prevDay: b.supplyPrevDay ?? null, maiden: b.maiden, activeDepeg: b.activeDepeg, pegDeviationBps: b.pegDeviationBps })), watchSources(model, nowMs), watchLandmarks(model, nowMs));
 }
 
 /** Idle breath: starts after this much stillness (s), one breath per period (s), ±3 % distance. */

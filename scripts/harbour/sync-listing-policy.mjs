@@ -4,11 +4,12 @@
  * listing-decisions.json, and domains/reserves/*.json. Pure: no I/O.
  */
 export const LISTING_POLICY_PATH = "shared/data/stablecoins/listing-policy.json";
+export const SOCIAL_CARDS_PATH = "shared/data/stablecoins/social-cards.json";
 
 /**
  * Documented in upstream docs/listing-policy.md (Tokenized Fund Retention) for
  * Falcon USDf's live reserve adapter. Only emitted when the target coin is an
- * active non-fund entry in the synced registry.
+ * active core stablecoin in the synced registry.
  */
 export const REVIEWED_LIVE_ADAPTER_FUND_LINKS = {
   "jaaa-janus-henderson-anemoy": ["usdf-falcon"],
@@ -16,9 +17,10 @@ export const REVIEWED_LIVE_ADAPTER_FUND_LINKS = {
 };
 
 const ACTIVE_NON_FUND_CLASSES = new Set(["core-stablecoin", "stablecoin-variant", "review-hold"]);
+const KNOWN_CLASSES = new Set(["core-stablecoin", "tokenized-fund", "stablecoin-variant", "review-hold", "excluded"]);
 const sortAsc = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-const isActiveCoin = (c) => c && (c.status == null || c.status === "active");
+export const isActiveRegistryCoin = (c) => Boolean(c && (c.status == null || c.status === "active"));
 
 function collectReferencedIds(coin, reserveDomain) {
   const refs = new Set();
@@ -81,8 +83,12 @@ export function buildListingPolicy({ registry, listingDecisions, reservesById = 
 
   for (const coin of byId.values()) {
     if (coin.status === "frozen") frozenIdSet.add(coin.id);
-    if (!isActiveCoin(coin)) continue;
+    if (!isActiveRegistryCoin(coin)) continue;
     const cls = classById[coin.id];
+    if (!KNOWN_CLASSES.has(cls)) {
+      problems.push(`active coin ${coin.id} has missing or unrecognized Policy 2.0 class ${JSON.stringify(cls)}`);
+      continue;
+    }
     if (cls === "tokenized-fund") {
       fundIdSet.add(coin.id);
     } else if (ACTIVE_NON_FUND_CLASSES.has(cls)) {
@@ -98,8 +104,9 @@ export function buildListingPolicy({ registry, listingDecisions, reservesById = 
   const reviewHoldIds = [...reviewHoldIdSet].sort(sortAsc);
   const variantIds = [...variantIdSet].sort(sortAsc);
   const frozenIds = [...frozenIdSet].sort(sortAsc);
+  // Frozen takes precedence over excluded so all five Policy 2.0 buckets remain strictly pairwise disjoint.
   const excludedIds = Object.entries(classById)
-    .filter(([, cls]) => cls === "excluded")
+    .filter(([id, cls]) => cls === "excluded" && !frozenIdSet.has(id))
     .map(([id]) => id)
     .sort(sortAsc);
 
@@ -111,8 +118,9 @@ export function buildListingPolicy({ registry, listingDecisions, reservesById = 
     for (const ref of refs) {
       if (!fundIdSet.has(ref)) continue;
       const set = backedByFund.get(ref);
-      set.add(coin.id);
-      if (classById[coin.id] === "stablecoin-variant" && typeof coin.variantOf === "string" && activeCoreIdSet.has(coin.variantOf)) {
+      if (activeCoreIdSet.has(coin.id)) {
+        set.add(coin.id);
+      } else if (classById[coin.id] === "stablecoin-variant" && typeof coin.variantOf === "string" && activeCoreIdSet.has(coin.variantOf)) {
         set.add(coin.variantOf);
       }
     }
@@ -122,7 +130,7 @@ export function buildListingPolicy({ registry, listingDecisions, reservesById = 
   for (const fid of fundIds) {
     const coin = byId.get(fid);
     const liveAdapterBackedIds = [...new Set(
-      (REVIEWED_LIVE_ADAPTER_FUND_LINKS[fid] ?? []).filter((id) => activeNonFundIdSet.has(id)),
+      (REVIEWED_LIVE_ADAPTER_FUND_LINKS[fid] ?? []).filter((id) => activeCoreIdSet.has(id)),
     )].sort(sortAsc);
     for (const id of liveAdapterBackedIds) backedByFund.get(fid).add(id);
 
@@ -145,7 +153,7 @@ export function buildListingPolicy({ registry, listingDecisions, reservesById = 
   const variantsGrouped = new Map();
   for (const vid of variantIds) {
     const coin = byId.get(vid);
-    if (!coin || typeof coin.variantOf !== "string" || !coin.variantOf) continue;
+    if (!coin || typeof coin.variantOf !== "string" || !activeCoreIdSet.has(coin.variantOf)) continue;
     const list = variantsGrouped.get(coin.variantOf) ?? [];
     list.push({
       id: coin.id,
@@ -173,5 +181,35 @@ export function buildListingPolicy({ registry, listingDecisions, reservesById = 
       variantsByParent,
     },
     problems,
+  };
+}
+
+/**
+ * Compact edge social-card identity table (`functions/index.ts`): maps active core stablecoins,
+ * active tokenized funds, and non-excluded pre-launch yard coins to `[symbol, name]` tuples.
+ * Variants, review-hold, excluded, and frozen entries are intentionally omitted.
+ */
+export function buildSocialCards({ registry, listingDecisions }) {
+  const classById = listingDecisions?.listingClassById ?? {};
+  const coreEntries = [];
+  const fundEntries = [];
+  const yardEntries = [];
+  for (const coin of Array.isArray(registry) ? registry : []) {
+    if (!isPlainObject(coin) || typeof coin.id !== "string" || !coin.id) continue;
+    const symbol = typeof coin.symbol === "string" && coin.symbol.trim() ? coin.symbol.trim() : coin.id;
+    const name = typeof coin.name === "string" && coin.name.trim() ? coin.name.trim() : symbol;
+    const cls = classById[coin.id];
+    if (isActiveRegistryCoin(coin)) {
+      if (cls === "core-stablecoin") coreEntries.push([coin.id, [symbol, name]]);
+      else if (cls === "tokenized-fund") fundEntries.push([coin.id, [symbol, name]]);
+    } else if (coin.status === "pre-launch" && cls !== "excluded") {
+      yardEntries.push([coin.id, [symbol, name]]);
+    }
+  }
+  const toSorted = (entries) => Object.fromEntries(entries.sort((a, b) => sortAsc(a[0], b[0])));
+  return {
+    core: toSorted(coreEntries),
+    funds: toSorted(fundEntries),
+    yard: toSorted(yardEntries),
   };
 }

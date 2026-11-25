@@ -1,4 +1,5 @@
 import { useMemo, useRef, type RefObject } from "react";
+import { isCoreBoat } from "../model/types";
 import { cullLabels, type LabelBox } from "./cull";
 import { useFrame, useFrameWrite, usePresence, useStore, useUISlice } from "./hooks";
 import { sameHit, type PickHit, type ScreenPoint } from "./services";
@@ -22,7 +23,7 @@ export function ChartLabels({ overlays, tagBox }: { overlays?: RefObject<LabelBo
     if (pharos) out.push({ key: pharos.id, text: pharos.text, kind: "landmark", hit: { kind: "landmark", id: pharos.id } });
     // chain names sit on the water at the pier's approach, like a chart's water lettering
     for (const p of piers) out.push({ key: p.id, text: p.text, kind: "pier", hit: { kind: "harbour", id: p.text, at: [p.anchor[0], p.anchor[1] + 1, p.anchor[2]] } });
-    for (const b of (model?.boats ?? []).filter((x) => x.state !== "wrecked").slice(0, 10)) out.push({ key: b.id, text: b.symbol, kind: "boat", hit: { kind: "boat", id: b.id } });
+    for (const b of (model?.boats ?? []).filter((x) => isCoreBoat(x) && x.state !== "wrecked").slice(0, 10)) out.push({ key: b.id, text: b.symbol, kind: "boat", hit: { kind: "boat", id: b.id } });
     for (const l of landmarks) if (l.id !== "pharos") out.push({ key: l.id, text: l.text, kind: "landmark", hit: { kind: "landmark", id: l.id } });
     return out;
   }, [store, model]);

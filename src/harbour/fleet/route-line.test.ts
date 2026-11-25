@@ -119,6 +119,20 @@ describe("backing-line mode (selected tokenized fund -> backed core stablecoins)
     expect(read).toHaveBeenCalledTimes(1);
     line.update(0.45, true, false, [0, 0]);
     expect(read).toHaveBeenCalledTimes(2);
+
+    // Deselecting (show(null)) fades out smoothly without snapping uDraw to 0 or reverting backing color
+    ctx.uniforms.uNight.value = 0;
+    line.update(1.2, true, false, [0, 0]);
+    expect(internal.mat.uniforms.uDraw.value).toBeGreaterThanOrEqual(100);
+    line.show(null);
+    line.update(0.05, true, false, [0, 0]);
+    expect(internal.mat.uniforms.uDraw.value).toBeGreaterThanOrEqual(100);
+    expect(internal.mat.uniforms.uBoatS.value).toBe(-1e6);
+    expect([col.r, col.g, col.b]).toEqual([0.8, 0.64, 0.34]);
+    expect(internal.mat.uniforms.uK.value).toBeGreaterThan(0.01);
+    // Once faded out, geometry is disposed and backing flag resets cleanly
+    line.update(2.0, true, false, null);
+    expect(internal.mesh).toBeNull();
     line.dispose();
   });
 });

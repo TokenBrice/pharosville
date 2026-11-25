@@ -198,7 +198,7 @@ function FundPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
           <div className="hb-big hb-num">{money(b.supply)}</div>
           {prev24 != null && <div className="hb-changes"><div><span className="hb-sc">24 h</span>{changeVal(prev24)}</div></div>}
           <dl className="hb-dl" style={{ marginTop: 8 }}>
-            <dt>NAV basis</dt><dd>{meta?.navToken ? "NAV-accreting fund share" : "Fixed-$1 NAV fund share"}</dd>
+            <dt>NAV basis</dt><dd>{meta?.navToken === true ? "NAV-accreting fund share" : meta?.navToken === false ? "Fixed-$1 NAV fund share" : "NAV basis not stated"}</dd>
             <dt>Reference currency</dt><dd>{pegName(meta?.pegCurrency ?? b.pegType)}</dd>
             {meta?.archetype && <><dt>Instrument</dt><dd>{ARCHETYPE_LABEL[meta.archetype] ?? causeName(meta.archetype)}</dd></>}
           </dl>
@@ -208,7 +208,7 @@ function FundPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
         </Sec>
         <Sec title="Safety grade">
           <dl className="hb-dl"><dt>Safety grade</dt><dd>Not graded</dd></dl>
-          <p className="hb-caption">{!b.gradeReason || b.gradeReason === "tokenized-fund-not-graded" ? "Tokenized funds are not assigned Pharos Safety Score letter grades under Listing Policy 2.0." : b.gradeReason}</p>
+          <p className="hb-caption">{!b.gradeReason || b.gradeReason.startsWith("tokenized-fund") ? "Tokenized funds are not assigned Pharos Safety Score letter grades under Listing Policy 2.0." : b.gradeReason}</p>
         </Sec>
         <Sec title={`Backed stablecoins${backedIds.length ? ` · ${backedIds.length}` : ""}`}>
           {backedIds.length ? (
@@ -222,7 +222,7 @@ function FundPanel({ b, titleRef }: { b: Boat; titleRef: React.RefObject<HTMLHea
               })}
             </ul>
           ) : <p className="hb-empty">No active backed stablecoins listed.</p>}
-          <p className="hb-caption">Select a stablecoin to inspect it. Dashed lines on the water trace each live backing link.</p>
+          <p className="hb-caption">Select a stablecoin to inspect it. Dashed arcs trace each backing link to a stablecoin in the harbour.</p>
         </Sec>
         <Sec title="Supply by chain"><ChainSplit boat={b} /></Sec>
         <CoinReadings id={b.id} model={model} mode="fund" />
@@ -1073,7 +1073,7 @@ function WarehousePanel({ id, model, titleRef }: { id: string } & P) {
   const reviewHold = model?.reviewHold ?? [];
   return (
     <>
-      <Head kicker="Reserve Anchorage · Policy 2.0" title={id === "warehouse" ? "Bonded Warehouse" : "Reserve Anchorage"}
+      <Head kicker={id === "warehouse" ? "Landmark · Policy 2.0" : "Sea zone · Policy 2.0"} title={id === "warehouse" ? "Bonded Warehouse" : "Reserve Anchorage"}
         sub={`${fundsWord(funds.length)} · ${money(aum)} reserve AUM`} titleRef={titleRef} />
       <div className="hb-panel-body">
         <Freshness model={model} source="stablecoins" />
@@ -1088,7 +1088,7 @@ function WarehousePanel({ id, model, titleRef }: { id: string } & P) {
                     <button type="button" className="hb-row" onClick={() => store.select({ kind: "boat", id: f.id })}>
                       <span className="hb-wreck-name"><Logo src={f.logo} label={f.symbol} color={f.brandColor} size={20} /><b>{f.symbol}</b><em>{f.name !== f.symbol ? f.name : ""}</em></span>
                       <span className="hb-num">{money(f.supply)}</span>
-                      <span className="hb-wreck-line"><span>{backed.length ? `Backs ${backed.slice(0, 3).join(", ")}${backed.length > 3 ? ` +${backed.length - 3}` : ""}` : "Reserve backing"}</span><span className="hb-wreck-meta">{f.fundMeta?.navToken ? "NAV" : "$1 NAV"}</span></span>
+                      <span className="hb-wreck-line"><span>{backed.length ? `Backs ${backed.slice(0, 3).join(", ")}${backed.length > 3 ? ` +${backed.length - 3}` : ""}` : "Reserve backing"}</span><span className="hb-wreck-meta">{f.fundMeta?.navToken === true ? "Accruing NAV" : f.fundMeta?.navToken === false ? "Fixed $1" : "Not stated"}</span></span>
                     </button>
                   </li>
                 );
@@ -1114,14 +1114,14 @@ function WarehousePanel({ id, model, titleRef }: { id: string } & P) {
 function RegistryPanel({ model, titleRef }: P) {
   const store = useStore();
   const live = (model?.boats ?? []).filter((b) => isCoreBoat(b) && b.state !== "wrecked");
-  const coreCount = model?.coreCount ?? model?.boats.filter(isCoreBoat).length ?? model?.payloadCount ?? 0;
+  const coreCount = model?.coreCount ?? live.length;
   const reserveCount = model?.reserveCount ?? model?.boats.filter(isTokenizedFund).length ?? 0;
   const reserveAum = model?.reserveSupplyTotal ?? (model?.boats ?? []).filter(isTokenizedFund).reduce((s, b) => s + b.supply, 0);
   const tally = gradeTally(model?.truth.safetyGrades.state !== "unavailable" ? live : []);
   const order = ["A", "B", "C", "D", "E", "F", "—"].filter((g) => tally.has(g));
   return (
     <>
-      <Head kicker="Landmark" title="The Registry" sub={`${coreCount} stablecoins on the register`} titleRef={titleRef} />
+      <Head kicker="Landmark" title="The Registry" sub={`${coreCount} ${coreCount === 1 ? "stablecoin" : "stablecoins"} on the register`} titleRef={titleRef} />
       <div className="hb-panel-body">
         <Freshness model={model} source="safetyGrades" />
         <Freshness model={model} source="stablecoins" />
@@ -1142,7 +1142,7 @@ function RegistryPanel({ model, titleRef }: P) {
         <p className="hb-caption">The grade board groups live core stablecoins by grade letter; NR and missing grades are Not rated. Wrecks and tokenized funds are excluded.</p>
         <p className="hb-caption">Press <kbd>L</kbd> for the ledger, or <kbd>/</kbd> to find one coin.</p>
         <Scenery>
-        <p className="hb-why">Every core stablecoin the register knows is a boat in this harbour: no sampling, no sister ships. The Registry also keeps each coin’s safety grade.</p>
+        <p className="hb-why">Every active core stablecoin on the water is a boat in this harbour: no sampling, no sister ships. The Registry also keeps each coin’s safety grade.</p>
         </Scenery>
       </div>
     </>

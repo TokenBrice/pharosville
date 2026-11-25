@@ -13,7 +13,7 @@ const PHASES = new Set(["announced", "testnet", "auditing", "beta", "launching-s
 /** YYYY, YYYY-MM, YYYY-MM-DD, or a quarter / half: 2026-Q4, 2027-H1. */
 const DATE = /^\d{4}(-(\d{2}(-\d{2})?|Q[1-4]|H[12]))?$/;
 
-function safeHttpsUrl(value) {
+export function safeHttpsUrl(value) {
   if (typeof value !== "string" || !value.trim()) return null;
   try {
     const parsed = new URL(value.trim());
@@ -37,7 +37,11 @@ export function buildPrelaunchBook(rows, logos, brand, listingClassById = {}) {
   const pre = all.filter((r) => r && r.status === "pre-launch" && listingClassById?.[r.id] !== "excluded");
   const seen = new Set();
   const coins = [];
-  for (const r of [...pre].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+  for (const r of [...pre].sort((a, b) => {
+    const ai = typeof a.id === "string" ? a.id : "";
+    const bi = typeof b.id === "string" ? b.id : "";
+    return ai < bi ? -1 : ai > bi ? 1 : 0;
+  })) {
     if (typeof r.id !== "string" || !r.id) { problems.push(`pre-launch row without an id: ${JSON.stringify(r).slice(0, 80)}`); continue; }
     if (seen.has(r.id)) problems.push(`pre-launch id ${r.id} appears twice`);
     seen.add(r.id);

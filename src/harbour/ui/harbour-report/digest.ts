@@ -10,9 +10,9 @@ const time = z.number().finite().nonnegative().max(8.64e15);
 const identity = z.string().min(1).max(256).refine((s) => !!s.trim());
 const id = z.string().min(1).max(256);
 const ObservationSchema = z.object({
-  version: z.literal(2), savedAt: time,
+  version: z.literal(3), savedAt: time,
   sourceTimes: z.object({ stablecoins: time, stability: time, pegSummary: time }).strict(),
-  supplyMethod: z.literal("reported-usd-buckets-v1"),
+  supplyMethod: z.literal("reported-usd-core-v2"),
   psi: z.object({ score: z.number().finite().min(0).max(100), band: z.enum(["BEDROCK", "STEADY", "TREMOR", "FRACTURE", "CRISIS", "MELTDOWN"]), date: time, method: identity, dewsUnavailable: z.boolean().nullable(), depegEventsUnavailable: z.boolean().nullable() }).strict(),
   pegMethod: identity,
   pegs: z.array(z.object({ id, offPeg: z.boolean(), method: identity }).strict()),
@@ -25,7 +25,7 @@ const unique = (ids: string[]): boolean => new Set(ids).size === ids.length;
 
 const index = z.number().int().nonnegative();
 const StoredObservationSchema = z.object({
-  v: z.literal(2), t: time, s: z.tuple([time, time, time]),
+  v: z.literal(3), t: time, s: z.tuple([time, time, time]),
   m: z.array(identity), b: z.array(z.array(id).min(1)),
   p: z.tuple([ObservationSchema.shape.psi.shape.score, ObservationSchema.shape.psi.shape.band, time, index, z.boolean().nullable(), z.boolean().nullable()]),
   g: index, e: z.array(z.tuple([index, z.boolean(), index])),
@@ -53,7 +53,7 @@ export function parseObservation(raw: string | null, nowMs: number): BrowserObse
     if (!stored.success) return null;
     const w = stored.data;
     const result = ObservationSchema.safeParse({
-      version: w.v, savedAt: w.t, supplyMethod: "reported-usd-buckets-v1",
+      version: w.v, savedAt: w.t, supplyMethod: "reported-usd-core-v2",
       sourceTimes: { stablecoins: w.s[0], stability: w.s[1], pegSummary: w.s[2] },
       psi: { score: w.p[0], band: w.p[1], date: w.p[2], method: w.m[w.p[3]], dewsUnavailable: w.p[4], depegEventsUnavailable: w.p[5] },
       pegMethod: w.m[w.g], pegs: w.e.map(([i, offPeg, method]) => ({ id: w.c[i]?.[0], offPeg, method: w.m[method] })),
@@ -77,7 +77,7 @@ export function browserObservation(model: HarbourModel | null, payloads: Harbour
   const live = new Set(model.boats.filter((b) => isCoreBoat(b) && b.state !== "wrecked").map((b) => b.id));
   const supply = payloads.stablecoins!.data!.peggedAssets.filter((r) => live.has(r.id)).map((r) => ({ id: r.id, symbol: r.symbol, usd: completeSupply(r.circulating), buckets: Object.keys(r.circulating).sort() })).sort((a, b) => byId(a.id, b.id));
   const record = {
-    version: 2, savedAt: nowMs, supplyMethod: "reported-usd-buckets-v1",
+    version: 3, savedAt: nowMs, supplyMethod: "reported-usd-core-v2",
     sourceTimes: { stablecoins: model.truth.stablecoins.sourceUpdatedAtMs, stability: model.truth.stability.sourceUpdatedAtMs, pegSummary: model.truth.pegSummary.sourceUpdatedAtMs },
     psi: { score: model.readings.psi.score, band: model.readings.psi.band, date: model.readings.psi.computedAt * 1000, method: cur.methodologyVersion ?? psi.methodology?.version,
       dewsUnavailable: cur.inputDegradation?.dewsUnavailable ?? null, depegEventsUnavailable: cur.inputDegradation?.depegEventsUnavailable ?? null },

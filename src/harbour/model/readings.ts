@@ -111,15 +111,16 @@ export function tideFactsReading(chains: ChainsPayload | null, truth: EndpointTr
   };
 }
 
-export function flowsReading(mint: MintBurnPayload | null, truth: EndpointTruth): FlowsReading {
+export function flowsReading(mint: MintBurnPayload | null, truth: EndpointTruth, coreIds?: ReadonlySet<string>): FlowsReading {
   if (!mint) return { hourly: [], net24hUsd: null, scope: [], stale: truth.state === "stale", available: false };
   const hourly = hourlyObservations(mint.hourly)
     .map((h) => ({ hourTs: h.hourTs, netUsd: h.netFlowUsd, mintUsd: h.mintVolumeUsd, burnUsd: h.burnVolumeUsd, ...(h.valuation === undefined ? {} : { valuation: h.valuation }) }));
   let net: number | null = 0;
   for (const h of hourly) net = net == null || h.netUsd == null ? null : net + h.netUsd;
+  const coins = mint.coins && coreIds ? mint.coins.filter((c) => coreIds.has(c.stablecoinId)) : mint.coins;
   return {
     hourly,
-    ...(mint.coins ? { coins: mint.coins } : {}),
+    ...(coins ? { coins } : {}),
     net24hUsd: hourly.length ? net : null,
     scope: mint.scope?.chainIds ?? [],
     stale: truth.state === "stale",

@@ -116,7 +116,7 @@ export const CHAIN_TIER_VALUES = ["ethereum", "stage1-l2", "mature-alt-l1", "est
 export const DEPLOYMENT_MODEL_VALUES = ["single-chain", "canonical-bridge", "third-party-bridge", "native-multichain"] as const;
 export const COLLATERAL_QUALITY_VALUES = ["native", "rwa", "eth-lst", "alt-lst-bridged-or-mixed", "exotic"] as const;
 export const CUSTODY_MODEL_VALUES = ["onchain", "institutional-top", "institutional-regulated", "institutional-unregulated", "institutional-sanctioned", "cex"] as const;
-export const VARIANT_KIND_VALUES = ["savings-passthrough", "strategy-vault", "risk-absorption", "bond-maturity"] as const;
+export const VARIANT_KIND_VALUES = ["savings-passthrough", "strategy-vault", "risk-absorption", "bond-maturity", "pure-wrapper"] as const;
 export type VariantKind = (typeof VARIANT_KIND_VALUES)[number];
 export const GOVERNANCE_QUALITY_VALUES = [
   "immutable-code",

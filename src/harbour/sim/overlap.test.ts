@@ -46,8 +46,8 @@ for (const epoch of [1794165544398, 1794189387491, T0_MS]) it(`separates the fle
   const L = buildSimLayout(layout, coast), base = L.slots.length;
   seedLegTimes(L, seeds.legs); seedOutings(L, seeds.outings);
   const plan = buildPlan(model, L);
+  expect(model.boats.length + (model.excludedCount ?? 0)).toBe(payloads.stablecoins!.data!.peggedAssets.length);
   expect(model.boats.length + (model.excludedCount ?? 0)).toBe(657);
-  expect(model.boats).toHaveLength(model.payloadCount);
   if (epoch === T0_MS) expect(model.boats).toHaveLength(657);
   else {
     expect(model.coreCount).toBe(229);

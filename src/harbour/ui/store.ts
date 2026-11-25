@@ -11,7 +11,7 @@ import { primaryPointer, TOUCH_COMMIT_PX } from "../engine/input";
 import { glideSeconds, glideTravel, type CameraPreset } from "../engine/camera-rig";
 import type { Engine } from "../engine/engine";
 import type { EngineContext, FrameState, WorldSystem } from "../engine/types";
-import { isTokenizedFund, type Boat, type HarbourModel } from "../model/types";
+import { isCoreBoat, isTokenizedFund, type Boat, type HarbourModel } from "../model/types";
 import { PANEL_LANDMARKS, whereabouts, type Whereabouts } from "./facts";
 import { UIPicking } from "./picking";
 import { civicTop, inPoly, plotFor, seaZones } from "./places";
@@ -103,7 +103,11 @@ export function springStep(p: { x: number; z: number; vx: number; vz: number }, 
 const BACKING_ARC_STEPS = 15;
 
 /** Gentle curved backing arcs on the water from a selected tokenized fund to each live backed core stablecoin. */
-export function backingItinerary(fund: Boat, pose: { ids: readonly string[]; position: ArrayLike<number> }): Itinerary | null {
+export function backingItinerary(
+  fund: Boat,
+  pose: { ids: readonly string[]; position: ArrayLike<number> },
+  allowId?: (id: string) => boolean,
+): Itinerary | null {
   const backedIds = fund.fundMeta?.backedIds;
   if (!backedIds?.length) return null;
   const fi = pose.ids.indexOf(fund.id);
@@ -112,6 +116,7 @@ export function backingItinerary(fund: Boat, pose: { ids: readonly string[]; pos
   const legs: Itinerary["legs"] = [];
   const ports: Itinerary["ports"] = [];
   for (const id of backedIds) {
+    if (allowId && !allowId(id)) continue;
     const bi = pose.ids.indexOf(id);
     if (bi < 0) continue;
     const bx = pose.position[bi * 3], bz = pose.position[bi * 3 + 2];
@@ -154,6 +159,7 @@ export class HarbourUIStore {
   private seen: { x: number; y: number } | null = null;
   private readonly cleanups: Array<() => void> = [];
   private readonly route: RouteLine;
+  private backingCache: { id: string; coords: number[]; it: Itinerary | null } | null = null;
   /** The framing the visitor landed on: Home / double-click on open water flies back to it. */
   private readonly home: CameraPreset;
   private readonly devStale = import.meta.env.DEV ? new URLSearchParams(location.search).get("stale") : null;
@@ -202,7 +208,7 @@ export class HarbourUIStore {
       const sim = getSim(this.ctx);
       if (!sim) return null;
       const b = this.boat(id);
-      if (b && isTokenizedFund(b)) return backingItinerary(b, sim.pose);
+      if (b && isTokenizedFund(b)) return this.backingFor(b, sim.pose);
       return sim.itineraryOf?.(id) ?? null;
     });
     this.cleanups.push(() => this.route.dispose());
@@ -460,6 +466,7 @@ export class HarbourUIStore {
     if (this.state.watch) this.stopWatch();
     if (!sameHit(hit, this.state.selected) || !hit) this.setFollow(null);
     this.picking.setSelected(hit);
+    if (hit?.kind !== "boat" || hit.id !== this.backingCache?.id) this.backingCache = null;
     this.route.show(hit?.kind === "boat" ? hit.id : null);
     this.set({ selected: hit, searchOpen: false, shipChoices: [], linkNotice: null, ...(hit && opts.fly !== false ? { ledgerOpen: false } : {}) });
     this.selectionEpoch = hit && opts.fly !== false ? this.ctx.rig.inputEpoch : null;
@@ -622,13 +629,22 @@ export class HarbourUIStore {
     }
     this.pendingSubject = null;
     readingSession = null;
-    const valid = !hit ? false : hit.kind === "boat" ? model.boats.some((b) => b.id === hit.id)
-      : hit.kind === "wreck" ? deadSummaries().has(hit.id) || model.readings.wrecks.some((w) => w.id === hit.id)
-        : hit.kind === "yard" ? yardCoins(this.ctx).some((c) => c.id === hit.id)
-          : hit.kind === "harbour" ? Object.hasOwn(CHAIN_META, hit.id) && model.harbours.some((h) => resolveChainId(h.chain) === hit.id) : PANEL_LANDMARKS.has(hit.id);
+    let target = hit;
+    if (hit?.kind === "boat" && !model.boats.some((b) => b.id === hit.id) && model.variantsByParent) {
+      for (const [parentId, variants] of Object.entries(model.variantsByParent)) {
+        if (variants.some((v) => v.id === hit.id) && model.boats.some((b) => b.id === parentId)) {
+          target = { kind: "boat", id: parentId };
+          break;
+        }
+      }
+    }
+    const valid = !target ? false : target.kind === "boat" ? model.boats.some((b) => b.id === target.id)
+      : target.kind === "wreck" ? deadSummaries().has(target.id) || model.readings.wrecks.some((w) => w.id === target.id)
+        : target.kind === "yard" ? yardCoins(this.ctx).some((c) => c.id === target.id)
+          : target.kind === "harbour" ? Object.hasOwn(CHAIN_META, target.id) && model.harbours.some((h) => resolveChainId(h.chain) === target.id) : PANEL_LANDMARKS.has(target.id);
     if (saved) this.set({ ledgerOpen: saved.ledgerOpen, ledgerOrigin: valid && saved.origin });
-    const resolved = hit?.kind === "harbour" && valid ? { ...hit, id: model.harbours.find((h) => resolveChainId(h.chain) === hit.id)!.chain } : hit;
-    if (valid) this.select(resolved, { fly: saved?.fly ?? true, history: "none" });
+    const resolved = target?.kind === "harbour" && valid ? { ...target, id: model.harbours.find((h) => resolveChainId(h.chain) === target.id)!.chain } : target;
+    if (valid) this.select(resolved, { fly: saved?.fly ?? true, history: target !== hit && this.normalizeSubject ? "replace" : "none" });
     else if (hit || intent?.obsolete || intent?.invalid) {
       this.select(null, { history: "none" });
       if (this.normalizeSubject) history.replaceState(null, "", "/");
@@ -662,6 +678,29 @@ export class HarbourUIStore {
     if (settled) { rig.glideTo(p, { ms: 1600, lift: -0.04 }); return; }
     const travel = glideTravel(rig.target.x, rig.target.z, rig.distance, p.target[0], p.target[2], p.distance);
     rig.glideTo(p, { ms: Math.max(1600, glideSeconds(travel) * 1000) });
+  }
+
+  /** Cached backing-arc itinerary: skips geometry rebuilds when endpoints have moved <= 0.5 m. */
+  private backingFor(fund: Boat, pose: { ids: readonly string[]; position: ArrayLike<number> }): Itinerary | null {
+    const backedIds = fund.fundMeta?.backedIds;
+    if (!backedIds?.length) return null;
+    const fi = pose.ids.indexOf(fund.id);
+    if (fi < 0) return null;
+    const liveCore = (id: string) => { const x = this.boat(id); return !!x && isCoreBoat(x) && x.state !== "wrecked"; };
+    const coords = [pose.position[fi * 3], pose.position[fi * 3 + 2]];
+    for (const id of backedIds) {
+      if (!liveCore(id)) continue;
+      const bi = pose.ids.indexOf(id);
+      if (bi >= 0) coords.push(pose.position[bi * 3], pose.position[bi * 3 + 2]);
+    }
+    const prev = this.backingCache;
+    if (prev && prev.id === fund.id && prev.coords.length === coords.length
+      && prev.coords.every((c, k) => Math.abs(c - coords[k]) <= 0.5)) {
+      return prev.it;
+    }
+    const it = backingItinerary(fund, pose, liveCore);
+    this.backingCache = { id: fund.id, coords, it };
+    return it;
   }
 
   /** The selected boat's rounds on the water (fleet/route-line.ts). */

@@ -108,7 +108,8 @@ export type DewsBand = "CALM" | "WATCH" | "ALERT" | "WARNING" | "DANGER";
 export type Where = string;
 
 export interface FundMeta {
-  navToken: boolean;
+  /** True for NAV-accreting shares, false for fixed-par ($1) shares, null when inferred from live grades without synced metadata. */
+  navToken: boolean | null;
   pegCurrency: string;
   archetype: string | null;
   backedIds: string[];
@@ -130,10 +131,10 @@ export interface ReviewHoldEntry {
   supply: number;
 }
 
-export const isTokenizedFund = (b: Pick<Boat, "listingClass" | "state"> | null | undefined): boolean =>
+export const isTokenizedFund = (b: { listingClass?: BoatListingClass | undefined; state?: BoatState | undefined } | null | undefined): boolean =>
   b?.listingClass === "tokenized-fund" || b?.state === "reserve";
 
-export const isCoreBoat = (b: Pick<Boat, "listingClass" | "state"> | null | undefined): boolean =>
+export const isCoreBoat = (b: { listingClass?: BoatListingClass | undefined; state?: BoatState | undefined } | null | undefined): boolean =>
   !!b && !isTokenizedFund(b);
 
 export interface CircuitStop {
@@ -305,11 +306,11 @@ export interface HarbourModel {
   harbours: Harbour[];
   readings: HarbourReadings;
   truth: Record<EndpointKey, EndpointTruth>;
-  /** Totals reconcile: boats.length === payloadCount (on-water vessels: core stablecoins + reserve funds). */
+  /** On-water vessels count (`boats.length === payloadCount`; `peggedAssets.length === boats.length + excludedCount`). */
   payloadCount: number;
   /** Core stablecoin supply total (Policy 2.0 core-stablecoins-v2: excludes tokenized funds, variants, frozen, review-hold). */
   supplyTotal: number;
-  /** Count of core stablecoin vessels on the register (excludes tokenized funds). */
+  /** Count of live (non-wrecked) core stablecoin vessels on the register (excludes tokenized funds and wrecks). */
   coreCount?: number;
   /** Count of active tokenized-fund vessels anchored in Reserve Anchorage (outside core totals). */
   reserveCount?: number;

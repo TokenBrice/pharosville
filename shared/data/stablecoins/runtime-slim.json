@@ -1933,8 +1933,8 @@
     "date": "2026-02-25",
     "type": "regulatory",
     "title": "FCA selects ReStabilise for stablecoin sandbox",
-    "sourceUrl": "https://www.fca.org.uk/news/press-releases/4-firms-selected-test-stablecoin-regulatory-sandbox",
-    "description": "Programme selection, not a first product-publication date, final authorization or public launch."
+    "description": "Programme selection, not a first product-publication date, final authorization or public launch.",
+    "sourceUrl": "https://www.fca.org.uk/news/press-releases/4-firms-selected-test-stablecoin-regulatory-sandbox"
    }
   ]
  },
@@ -1953,8 +1953,8 @@
     "date": "2026-02-25",
     "type": "regulatory",
     "title": "FCA selects VVTX for stablecoin sandbox",
-    "sourceUrl": "https://www.fca.org.uk/news/press-releases/4-firms-selected-test-stablecoin-regulatory-sandbox",
-    "description": "Testing programme, not full authorization or a public token launch."
+    "description": "Testing programme, not full authorization or a public token launch.",
+    "sourceUrl": "https://www.fca.org.uk/news/press-releases/4-firms-selected-test-stablecoin-regulatory-sandbox"
    },
    {
     "date": "2026-08-05",
@@ -2612,7 +2612,7 @@
     "type": "milestone",
     "title": "BDACS publishes institutional KRW1 whitepaper",
     "description": "Institutional whitepaper published on the BDACS newsroom; krw1.kr now describes commercialization of issuance and circulation for select KYC/AML-vetted institutions, while aggregator-tracked supply remains proof-of-concept scale pending Korea's Digital Asset Basic Act (bills introduced July 28 2026).",
-    "sourceUrl": "https://newsroom.bdacs.co.kr"
+    "sourceUrl": "https://newsroom.bdacs.co.kr/"
    },
    {
     "date": "2026-07-10",
@@ -2973,15 +2973,15 @@
     "date": "2026-06-25",
     "type": "regulatory",
     "title": "ESMA records WEUR whitepaper notification",
-    "sourceUrl": "https://www.esma.europa.eu/sites/default/files/2024-12/EMTWP.csv",
-    "description": "Notification is not whitepaper approval or evidence of circulation."
+    "description": "Notification is not whitepaper approval or evidence of circulation.",
+    "sourceUrl": "https://www.esma.europa.eu/sites/default/files/2024-12/EMTWP.csv"
    },
    {
     "date": "2026-07-08",
     "type": "announcement",
     "title": "Whitepaper publication and offer-start date",
-    "sourceUrl": "https://www.weur.io/protocol/whitepaper/v2",
-    "description": "The disclosed offer date does not establish public token issuance."
+    "description": "The disclosed offer date does not establish public token issuance.",
+    "sourceUrl": "https://www.weur.io/protocol/whitepaper/v2"
    },
    {
     "date": "2026-08-24",
@@ -3006,15 +3006,15 @@
     "date": "2026-04-06",
     "type": "regulatory",
     "title": "Whitepaper cover states original AFM notification",
-    "sourceUrl": "https://www.quantoz.com/documents/plnq-wp-v1.1-30-4-2026.pdf",
-    "description": "The document I.01 field instead gives 6 March; the cover date is retained as an attributed statement."
+    "description": "The document I.01 field instead gives 6 March; the cover date is retained as an attributed statement.",
+    "sourceUrl": "https://www.quantoz.com/documents/plnq-wp-v1.1-30-4-2026.pdf"
    },
    {
     "date": "2026-04-07",
     "type": "regulatory",
     "title": "ESMA records PLNQ whitepaper notification",
-    "sourceUrl": "https://www.esma.europa.eu/sites/default/files/2024-12/EMTWP.csv",
-    "description": "Not a confirmed circulation date or approval of the whitepaper."
+    "description": "Not a confirmed circulation date or approval of the whitepaper.",
+    "sourceUrl": "https://www.esma.europa.eu/sites/default/files/2024-12/EMTWP.csv"
    },
    {
     "date": "2026-04-14",
@@ -3067,8 +3067,8 @@
     "date": "2026-02-03",
     "type": "regulatory",
     "title": "CzechInvest names CZKC in sandbox testing cohort",
-    "sourceUrl": "https://czechinvest.gov.cz/en/Homepage/News/February-2026/Czechia%E2%80%99s-first-regulatory-sandbox-commences-testing-phase-for-21-fintech-projects",
-    "description": "Dated programme milestone, not an inferred first token announcement or issuance authorization."
+    "description": "Dated programme milestone, not an inferred first token announcement or issuance authorization.",
+    "sourceUrl": "https://czechinvest.gov.cz/en/Homepage/News/February-2026/Czechia%E2%80%99s-first-regulatory-sandbox-commences-testing-phase-for-21-fintech-projects"
    },
    {
     "date": "2026-06-22",
@@ -3837,7 +3837,7 @@
     "type": "milestone",
     "title": "Patched Peg Stability Module cutover completed; minting open on Base",
     "description": "The patched KUSDPSM completed cutover and is live with open 1:1 USDC minting (10 bps fee) in the protocol's Genesis Phase.",
-    "sourceUrl": "https://kerne.fi"
+    "sourceUrl": "https://kerne.fi/"
    },
    {
     "date": "2026-07-31",
@@ -3954,8 +3954,8 @@
     "date": "2026-09-23",
     "type": "announcement",
     "title": "tx announces native USTX issued by Brale",
-    "sourceUrl": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7508604753505964033/",
-    "description": "The issuer partnership promises full 1:1 backing and an October launch for settlement of tokenized stocks, ETFs and other real-world assets."
+    "description": "The issuer partnership promises full 1:1 backing and an October launch for settlement of tokenized stocks, ETFs and other real-world assets.",
+    "sourceUrl": "https://www.linkedin.com/feed/update/urn:li:ugcPost:7508604753505964033/"
    },
    {
     "date": "2026-10-08",
@@ -3988,8 +3988,8 @@
     "date": "2025-09-25",
     "type": "announcement",
     "title": "Cloudflare announces NET Dollar for agentic commerce",
-    "sourceUrl": "https://www.cloudflare.com/press/press-releases/2025/cloudflare-introduces-net-dollar-to-support-a-new-business-model-for-the-ai-driven-internet/",
-    "description": "The announcement commits to a U.S. dollar-backed stablecoin for automated payments by agents, developers and creators."
+    "description": "The announcement commits to a U.S. dollar-backed stablecoin for automated payments by agents, developers and creators.",
+    "sourceUrl": "https://www.cloudflare.com/press/press-releases/2025/cloudflare-introduces-net-dollar-to-support-a-new-business-model-for-the-ai-driven-internet/"
    }
   ]
  },
@@ -4007,15 +4007,15 @@
     "date": "2025-08-26",
     "type": "announcement",
     "title": "VersaBank USA launches internal USDVB pilot",
-    "sourceUrl": "https://www.versabank.com/versabank-announces-versabank-usa-launch-of-tokenized-deposit-pilot-program-in-united-states/",
-    "description": "The bank describes phased testing and limited external partner/client expansion before commercialization, with one USDVB per US$1 on deposit."
+    "description": "The bank describes phased testing and limited external partner/client expansion before commercialization, with one USDVB per US$1 on deposit.",
+    "sourceUrl": "https://www.versabank.com/versabank-announces-versabank-usa-launch-of-tokenized-deposit-pilot-program-in-united-states/"
    },
    {
     "date": "2026-09-01",
     "type": "regulatory",
     "title": "Quarterly filing retains conditional tokenized-deposit strategy",
-    "sourceUrl": "https://www.versabank.com/wp-content/uploads/2026/09/VB-Q326-MDA-vF.pdf",
-    "description": "The bank seeks regulatory confirmation of insurance eligibility and the ability to pay interest; the filing does not establish a public USDVB commercial launch."
+    "description": "The bank seeks regulatory confirmation of insurance eligibility and the ability to pay interest; the filing does not establish a public USDVB commercial launch.",
+    "sourceUrl": "https://www.versabank.com/wp-content/uploads/2026/09/VB-Q326-MDA-vF.pdf"
    },
    {
     "date": "2026-10-01",
@@ -4048,29 +4048,29 @@
     "date": "2025-05-08",
     "type": "announcement",
     "title": "Alpen announces Bitcoin Dollar built from Liquity V2",
-    "sourceUrl": "https://www.alpen.org/blog/bitcoin-dollar",
-    "description": "BTC-only collateral, no governance and immutable code are announced design goals, not verified deployed controls."
+    "description": "BTC-only collateral, no governance and immutable code are announced design goals, not verified deployed controls.",
+    "sourceUrl": "https://www.alpen.org/blog/bitcoin-dollar"
    },
    {
     "date": "2026-01-05",
     "type": "milestone",
     "title": "Alpen recap reiterates BTD design and platform testnets",
-    "sourceUrl": "https://www.alpen.org/blog/inside-alpens-2025",
-    "description": "The recap describes the intended borrowing flow; platform testnets and infrastructure audits do not confirm a BTD token launch."
+    "description": "The recap describes the intended borrowing flow; platform testnets and infrastructure audits do not confirm a BTD token launch.",
+    "sourceUrl": "https://www.alpen.org/blog/inside-alpens-2025"
    },
    {
     "date": "2026-07-28",
     "type": "milestone",
     "title": "Alpen launches partner-integration Testnet III on Bitcoin Signet",
-    "sourceUrl": "https://www.alpen.org/blog/partner-integration-testnet-iii",
-    "description": "More than 21 platform partners are integrating ahead of mainnet; no BTD production deployment is announced."
+    "description": "More than 21 platform partners are integrating ahead of mainnet; no BTD production deployment is announced.",
+    "sourceUrl": "https://www.alpen.org/blog/partner-integration-testnet-iii"
    },
    {
     "date": "2026-09-24",
     "type": "partnership",
     "title": "Alpen announces USDC and CCTP for future mainnet",
-    "sourceUrl": "https://www.alpen.org/blog/usdc-is-coming-to-bitcoin",
-    "description": "Alpen says both will be available when mainnet launches. This platform partnership does not announce BTD issuance or a BTD launch date."
+    "description": "Alpen says both will be available when mainnet launches. This platform partnership does not announce BTD issuance or a BTD launch date.",
+    "sourceUrl": "https://www.alpen.org/blog/usdc-is-coming-to-bitcoin"
    }
   ]
  },

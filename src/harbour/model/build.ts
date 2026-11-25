@@ -115,7 +115,7 @@ function fundMetaFor(a: CoinRow): FundMeta {
     };
   }
   return {
-    navToken: true,
+    navToken: null,
     pegCurrency: a.pegType.replace(/^pegged/, "") || "USD",
     archetype: null,
     backedIds: [],
@@ -148,15 +148,15 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
   let excludedCount = 0;
 
   for (const a of coins) {
+    if (EXCLUDED_IDS.has(a.id) || /^\d+$/.test(a.id)) {
+      excludedCount++;
+      continue;
+    }
     if (deadIds.has(a.id)) {
       coreRows.push(a);
       continue;
     }
     if (a.frozen === true || FROZEN_IDS.has(a.id)) {
-      excludedCount++;
-      continue;
-    }
-    if (EXCLUDED_IDS.has(a.id) || /^\d+$/.test(a.id)) {
       excludedCount++;
       continue;
     }
@@ -187,7 +187,7 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
       continue;
     }
     const gradeRow = gradeById.get(a.id);
-    if (FUND_IDS.has(a.id) || gradeRow?.notRatedReason === "tokenized-fund-not-graded") {
+    if (FUND_IDS.has(a.id) || Boolean(gradeRow?.notRatedReason?.startsWith("tokenized-fund"))) {
       fundRows.push(a);
       continue;
     }
@@ -263,13 +263,16 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
     const chainUsd = sortedChainUsd(a);
     const attributed = chainUsd.reduce((s, [, v]) => s + v, 0);
     const gradeRow = gradeById.get(a.id);
+    // Reserve Anchorage slots are authored to the `large` (18 m) envelope; cap $10B+ funds at `large` so adjacent hulls never collide.
+    const rawCls = hullClassFor(supply);
+    const hullClass = rawCls === "flagship" ? "large" : rawCls;
     return {
       id: a.id,
       symbol: a.symbol,
       name: a.name,
       supply,
       supplyPrevDay: prevDaySupply(a.circulatingPrevDay),
-      hullClass: hullClassFor(supply),
+      hullClass,
       rig: rigFor(a.pegType),
       pegType: a.pegType,
       brandColor: brandColorOf(a.id),
@@ -315,6 +318,7 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
   });
 
   const liveCore = boats.filter((b) => isCoreBoat(b) && b.state !== "wrecked");
+  const liveCoreIds = new Set(liveCore.map((b) => b.id));
   const flags = coinsCurrent ? stormFlags(liveCore, truth.stress) : [];
   const flagById = new Map(flags.map((f) => [f.id, f.shape]));
   for (const b of boats) b.stormSignal = isCoreBoat(b) ? (flagById.get(b.id) ?? null) : null;
@@ -329,7 +333,7 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
       tide: tideFactsReading(chainsPayload, truth.chains),
       seaState: seaStateReading(liveCore, peg != null, truth.pegSummary),
       weather: weatherReading(liveCore, stress != null, truth.stress),
-      flows: flowsReading(payloads.mintBurn?.data ?? null, truth.mintBurn),
+      flows: flowsReading(payloads.mintBurn?.data ?? null, truth.mintBurn, liveCoreIds),
       stormCones: stormCones(liveCore, stress != null),
       stormFlags: flags,
       shoals: liveCore.filter((b) => b.activeDepeg).map((b) => ({ id: b.id, bps: b.pegDeviationBps, supply: b.supply })),
@@ -338,7 +342,7 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
     truth,
     payloadCount: boats.length,
     supplyTotal: coreBoats.reduce((s, b) => s + b.supply, 0),
-    coreCount: coreBoats.length,
+    coreCount: liveCore.length,
     reserveCount: reserveBoats.length,
     reserveSupplyTotal: reserveBoats.reduce((s, b) => s + b.supply, 0),
     variantsByParent,
@@ -355,7 +359,7 @@ export function buildHarbourModel(payloads: HarbourPayloads, nowMs: number, opti
 function planKeyOf(boats: Boat[]): string {
   const parts: string[] = [];
   for (const b of boats) {
-    const flag = b.state === "wrecked" ? "w" : b.state === "reserve" || isTokenizedFund(b) ? "r" : "";
+    const flag = b.state === "wrecked" ? "w" : isTokenizedFund(b) ? "r" : "";
     parts.push(`${b.id}:${b.hullClass}:${b.rig}:${flag}:${b.circuit.map((s) => `${s.where}=${Math.round(s.share * 100)}`).join(",")}`);
   }
   const s = parts.join("|");

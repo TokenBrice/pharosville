@@ -80,7 +80,12 @@ function projectStress(payload: ProjectionJson): ProjectionJson {
 function projectSafetyGrades(payload: ProjectionJson): ProjectionJson {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload) || !Array.isArray(payload.grades)) return payload;
   return { ...pick(payload, ["_meta", "updatedAt", "methodologyVersion"]) as JsonObject, grades: payload.grades
-    .filter((row) => row === null || typeof row !== "object" || Array.isArray(row) || typeof row.id !== "string" || RUNTIME_ACTIVE_IDS.has(row.id))
+    .filter((row) => {
+      if (row === null || typeof row !== "object" || Array.isArray(row) || typeof row.id !== "string") return true;
+      if (RUNTIME_ACTIVE_IDS.has(row.id)) return true;
+      // Preserve unsynced tokenized-fund not-rated rows so buildHarbourModel's live fallback catches newly added funds before weekly sync.
+      return row.ratingStatus === "not-rated" && typeof row.notRatedReason === "string" && row.notRatedReason.startsWith("tokenized-fund");
+    })
     .map((row) => pick(row, ["id", "grade", "ratingStatus", "notRatedReason"])) };
 }
 

@@ -41,7 +41,7 @@ export function PanelOutbound() {
       : ["stablecoins", "Stablecoins on Pharos analytics"])
     : selected.kind === "harbour" ? ["chains", "Chains on Pharos analytics"]
       : selected.kind === "landmark" && (selected.id === "warehouse" || selected.id === "reserve-anchorage")
-        ? ["stablecoins", "Tokenized funds on Pharos"] : null;
+        ? ["stablecoins", "Stablecoins & funds on Pharos"] : null;
   if (!target) return null;
   return <p className="hb-caption"><a className="hb-out" href={`https://pharos.watch/${target[0]}/`} target="_blank" rel="noopener noreferrer">
     {target[1]}<span aria-hidden="true"> ↗</span><span className="hb-sr"> (opens in a new tab)</span>

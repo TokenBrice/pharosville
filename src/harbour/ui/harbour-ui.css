@@ -464,7 +464,7 @@ summary.hb-sec-h::before { content: ""; border: 4px solid transparent; border-le
 :is(.hb-result, .hb-yard) .hb-logo { width: 22px; height: 22px; }
 :is(.hb-result, .hb-yard, .hb-scope) .hb-logo { box-shadow: 0 0 0 0.5px var(--neat); }
 :is(.hb-result, .hb-yard) .hb-logo span { font-size: var(--fs-cap); }
-.hb-pill { display: inline-block; padding: 1px 7px; border: 0.5px solid var(--rule); border-radius: var(--r-ctl); background: var(--wash-2); color: var(--brass-ink); font-size: var(--fs-note); }
+.hb-pill { display: inline-block; padding: 1px 7px; border: 0.5px solid var(--rule); border-radius: var(--r-ctl); background: none; color: var(--brass-ink); font-size: var(--fs-note); }
 .hb-pill.hb-sc { font-size: var(--fs-cap); }
 .hb-result b { font-weight: 600; font-size: var(--fs-lead); }
 .hb-result em { color: var(--ink-3); font-size: var(--fs-small); }

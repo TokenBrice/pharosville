@@ -82,7 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           # the atlas is rebuilt every run but only ships WITH a data change, never on its own
-          paths=(data/logos.json data/brand-colors.json data/pharos-watch-sync.json public/logos src/harbour/data/prelaunch.json shared/data/dead-stablecoins.json shared/data/stablecoins/listing-policy.json shared/data/stablecoins/runtime-active-ids.json shared/data/stablecoins/runtime-slim.json)
+          paths=(data/logos.json data/brand-colors.json data/pharos-watch-sync.json public/logos src/harbour/data/prelaunch.json shared/data/dead-stablecoins.json shared/data/stablecoins/listing-policy.json shared/data/stablecoins/runtime-active-ids.json shared/data/stablecoins/runtime-slim.json shared/data/stablecoins/social-cards.json)
           if git diff --quiet -- "${paths[@]}" && [ -z "$(git ls-files --others --exclude-standard -- "${paths[@]}")" ]; then
             echo "pharos-watch data unchanged: no pull request."
             exit 0

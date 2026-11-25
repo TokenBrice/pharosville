@@ -29,8 +29,11 @@ function emitCompactListingPolicy(data: {
   };
   const packedVariants: Record<string, Array<[string, string, string, number]>> = {};
   const parented = new Set<string>();
+  const variantSet = new Set(data.variantIds);
   for (const [parentId, list] of Object.entries(data.variantsByParent)) {
     packedVariants[parentId] = list.map((v) => {
+      if (!variantSet.has(v.id)) throw new Error(`listing-policy.json: variantsByParent.${parentId} contains ${v.id} absent from variantIds`);
+      if (parented.has(v.id)) throw new Error(`listing-policy.json: duplicate variant id ${v.id} in variantsByParent`);
       parented.add(v.id);
       return [v.id, v.symbol, v.name, kindIdx(v.kind)];
     });

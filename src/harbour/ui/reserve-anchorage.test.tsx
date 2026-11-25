@@ -11,6 +11,7 @@ import { Ledger } from "./Ledger";
 import { SidePanel } from "./Panel";
 import { Search } from "./Search";
 import { readingCoverage } from "./source-state";
+import { preloadDetails } from "./details";
 import { backingItinerary } from "./store";
 import { panelFixture } from "./__fixtures__/store";
 import { browserObservation } from "./harbour-report/digest";
@@ -104,7 +105,14 @@ describe("Policy 2.0 tokenized funds, Reserve Anchorage & core variants", () => 
     expect(whyHere(buidl, w)).toContain("Reserve Anchorage off the Bonded Warehouse");
     expect(landmarkFact("warehouse", f.model, null)).toEqual({ fact: "2 tokenized funds · $2.95B reserve AUM · outside core totals" });
     expect(landmarkFact("reserve-anchorage", f.model, null).decorative).toBeUndefined();
-    expect(landmarkFact("registry", f.model, null)).toEqual({ fact: "1 stablecoins · 2 tokenized funds ungraded" });
+    expect(landmarkFact("registry", f.model, null)).toEqual({ fact: "1 stablecoin · 2 tokenized funds ungraded" });
+
+    // Unsynced fallback fund with unknown NAV basis and no listed backedIds uses honest copy
+    const unsynced = makeFund(f.model.boats[0], {
+      id: "new-unsynced-fund", symbol: "NEWF", name: "New Fund",
+      fundMeta: { navToken: null, pegCurrency: "USD", archetype: null, backedIds: [] },
+    });
+    expect(whyHere(unsynced, w)).toBe("Anchored in Reserve Anchorage off the Bonded Warehouse. Retained as a tokenized fund outside core stablecoin totals and Safety Scores.");
   });
 
   it("renders the dedicated tokenized fund panel, omits Depeg history, links backed stablecoins and tags HoverTag", () => {
@@ -138,6 +146,17 @@ describe("Policy 2.0 tokenized funds, Reserve Anchorage & core variants", () => 
     act(() => f.store.select({ kind: "boat", id: jaaa.id }, { fly: false }));
     expect(screen.getByText("NAV-accreting fund share")).toBeTruthy();
     expect(screen.getByText("Tokenized credit fund")).toBeTruthy();
+
+    // Unsynced fund with navToken: null and unknown tokenized-fund-* reason uses honest fallback copy
+    const unsynced = makeFund(core, {
+      id: "future-fund-x", symbol: "FFX", name: "Future Fund X",
+      gradeReason: "tokenized-fund-nav-only",
+      fundMeta: { navToken: null, pegCurrency: "USD", archetype: null, backedIds: [] },
+    });
+    f.model.boats.push(unsynced);
+    act(() => { f.store.set({ model: { ...f.model } }); f.store.select({ kind: "boat", id: unsynced.id }, { fly: false }); });
+    expect(screen.getByText("NAV basis not stated")).toBeTruthy();
+    expect(screen.getByText(/not assigned Pharos Safety Score letter grades/i)).toBeTruthy();
   });
 
   it("shows reserve fund backing links and tracked variants on core stablecoin panels", () => {
@@ -172,7 +191,7 @@ describe("Policy 2.0 tokenized funds, Reserve Anchorage & core variants", () => 
     expect(screen.getByText(/investment-fund shares or NAV-priced claims/i)).toBeTruthy();
     expect(screen.getByText("rcUSD")).toBeTruthy();
     expect(screen.getByText(/Under listing review — outside core totals/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Tokenized funds on Pharos/ }).getAttribute("href")).toBe("https://pharos.watch/stablecoins/");
+    expect(screen.getByRole("link", { name: /Stablecoins & funds on Pharos/ }).getAttribute("href")).toBe("https://pharos.watch/stablecoins/");
 
     const buttons = within(screen.getByRole("heading", { name: "Tokenized funds · 2" }).closest("section")!).getAllByRole("button");
     expect(buttons[0].textContent).toContain("BUIDL");
@@ -189,7 +208,7 @@ describe("Policy 2.0 tokenized funds, Reserve Anchorage & core variants", () => 
     f.store.set({ model: { ...f.model } });
     f.store.select({ kind: "landmark", id: "registry" }, { fly: false });
     render(<StoreContext.Provider value={f.store}><SidePanel onClose={() => {}} /></StoreContext.Provider>);
-    expect(screen.getByText("1 stablecoins on the register")).toBeTruthy();
+    expect(screen.getByText("1 stablecoin on the register")).toBeTruthy();
     expect(screen.getByText(/Reserve Anchorage: 2 tokenized funds \(\$2\.95B AUM\) — not graded under Listing Policy 2\.0\./)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View Reserve Anchorage" }));
     expect(f.store.getSnapshot().selected).toEqual({ kind: "landmark", id: "reserve-anchorage" });
@@ -252,6 +271,7 @@ describe("Policy 2.0 tokenized funds, Reserve Anchorage & core variants", () => 
     expect(it!.legs[0].current).toBe(true);
     expect(it!.legs[0].pts.length).toBe(32);
     expect(it!.ports).toEqual([[20, -100]]);
+    expect(backingItinerary(buidl, { ids: [buidl.id, core.id], position: [150, 0, -140, 20, 0, -100] }, () => false)).toBeNull();
     expect(backingItinerary(buidl, { ids: [buidl.id], position: [150, 0, -140] })).toBeNull();
   });
 
@@ -279,5 +299,24 @@ describe("Policy 2.0 tokenized funds, Reserve Anchorage & core variants", () => 
 
     const obs = browserObservation(rf.model, rf.payloads, rf.nowMs)!;
     expect(obs.supply.map((s) => s.id)).not.toContain("buidl-blackrock");
+  });
+
+  it("redirects tracked-variant deep links (?sel=ship.<variantId>) to the parent core stablecoin", async () => {
+    const parentId = f.model.boats[0].id;
+    history.replaceState(null, "", "/?sel=ship.susdc-spark");
+    const rf = panelFixture(1600, 1000, { restore: true, current: false });
+    try {
+      rf.model.variantsByParent = {
+        [parentId]: [{ id: "susdc-spark", symbol: "sUSDC", name: "Savings USDC", kind: "savings-passthrough", supply: 420e6 }],
+      };
+      rf.model.truth.stablecoins.state = "current";
+      rf.frame();
+      await preloadDetails();
+      rf.frame();
+      expect(rf.store.getSnapshot().selected).toEqual({ kind: "boat", id: parentId });
+      expect(location.search).toBe(`?sel=ship.${parentId}`);
+    } finally {
+      rf.dispose();
+    }
   });
 });

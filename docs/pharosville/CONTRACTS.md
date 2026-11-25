@@ -113,7 +113,7 @@ omitted from live water.
 | `/api/stability-index?detail=true` | `current.score`, `band`, `avg24h`, `computedAt`, `methodologyVersion`, `inputDegradation.dewsUnavailable/depegEventsUnavailable`, root `methodology.version`; components `severity`, `breadth`, `stressBreadth`, `trend`; `history` retains the panel's last 30 finite-score rows sorted by ascending date, each `date`, `score`, and `methodologyVersion` |
 | `/api/peg-summary` | Every coin's `id`, `currentDeviationBps`, `activeDepeg`, `pegScore`, and `pegReference.valueUsd/source/contributorCount`; coin `methodologyVersion`; root `methodology.asOf/version` |
 | `/api/stress-signals` | Every signal ID and its `score`, `band`; top-level `updatedAt`, `methodology.version` |
-| `/api/safety-grades` | Synced runtime-active rows, each `id`, `grade`, optional `ratingStatus`, optional `notRatedReason`; top-level `updatedAt`, `methodologyVersion` |
+| `/api/safety-grades` | Synced runtime-active rows plus any upstream `not-rated` rows carrying a `tokenized-fund*` reason (so newly listed funds route to Reserve Anchorage before the next catalog sync), each `id`, `grade`, optional `ratingStatus`, optional `notRatedReason`; top-level `updatedAt`, `methodologyVersion` |
 | `/api/mint-burn-flows` | Every hourly row's `hourTs`, `netFlowUsd`, `mintVolumeUsd`, `burnVolumeUsd`, `valuation`; `scope.chainIds`; every coin's `stablecoinId`, `mintVolume24hUsd`, `burnVolume24hUsd`, `netFlow24hUsd`, `netFlow7dUsd`, `coverage.status/has24hWindow/historyStartAt/isPartial`, `valuation.window24h.completeness/mintCompleteness/burnCompleteness`, `valuation.netFlow7d` |
 
 Publication timestamps (`_meta`, `computedAt`, `methodology.asOf`, `updatedAt`) are kept so

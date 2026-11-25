@@ -672,5 +672,45 @@ describe("Reserve Anchorage simulation", () => {
     }
     expect(swung).toBeGreaterThan(8);
     expect(doubleBooked(sim13.poseAt(T0_MS + 660_000))).toBe(0);
+
+    // 3. Overflow beyond 20 authored slots (28 total funds): validated open-water anchors inside panClamp, zero land/slot overlap
+    const overflow8 = Array.from({ length: 8 }, (_, k) => ({
+      id: `overflow-tokenized-fund-${k}`,
+      name: `Overflow Fund ${k}`,
+      symbol: `OF${k}`,
+      pegType: "peggedUSD",
+      circulating: { peggedUSD: (8 - k) * 5e7 },
+      chainCirculating: { Ethereum: { current: (8 - k) * 5e7 } },
+      chains: ["Ethereum"],
+    }));
+    const p28 = makePayloads({ coins: [...coreCoins, ...fundRows13, ...extra7, ...overflow8], nowMs: T0_MS + 120_000 });
+    p28.safetyGrades!.data!.grades.push(
+      ...extraGrades,
+      ...overflow8.map((c) => ({ id: c.id, grade: "NR" as const, ratingStatus: "not-rated", notRatedReason: "tokenized-fund-not-graded" })),
+    );
+    const m28 = buildHarbourModel(p28, T0_MS + 120_000, { pieredChains: realPiered, dead: [] });
+    expect(m28.reserveCount).toBe(28);
+    sim13.setModel(m28, T0_MS + 120_000);
+    const pOver = sim13.poseAt(T0_MS + 120_000);
+    const all28 = [...allFundIds, ...overflow8.map((c) => c.id)].map((id) => sim13.indexOf(id));
+    const view = sim13.layout.view!;
+    for (const i of all28) {
+      const slot = sim13.slotOf(i)!;
+      expect(slot.kind).toBe("reserve");
+      expect(slot.x).toBeGreaterThanOrEqual(view[0]);
+      expect(slot.x).toBeLessThanOrEqual(view[2]);
+      expect(slot.z).toBeGreaterThanOrEqual(view[1]);
+      expect(slot.z).toBeLessThanOrEqual(view[3]);
+      const x = pOver.position[i * 3], z = pOver.position[i * 3 + 2];
+      expect(hullClearance(sim13.layout.hard, x, z, pOver.heading[i], largeFoot.loa, largeFoot.beam)).toBeGreaterThan(1);
+    }
+    for (let a = 0; a < all28.length; a++) {
+      for (let b = a + 1; b < all28.length; b++) {
+        const ia = all28[a], ib = all28[b];
+        const d = Math.hypot(pOver.position[ia * 3] - pOver.position[ib * 3], pOver.position[ia * 3 + 2] - pOver.position[ib * 3 + 2]);
+        expect(d).toBeGreaterThan(largeFoot.loa);
+      }
+    }
+    expect(doubleBooked(pOver)).toBe(0);
   }, 60_000);
 });

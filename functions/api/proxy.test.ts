@@ -638,7 +638,8 @@ describe("PharosVille API proxy", () => {
       _meta: { updatedAt: 1_700_000_000, ageSeconds: 5, status: "fresh" },
       grades: [
         { id: activeId, score: 80, grade: "A-", ratingStatus: "rated", notRatedReason: null },
-        { id: fundId, score: null, grade: "NR", ratingStatus: "not-rated", notRatedReason: "tokenized-fund", internalDetail: "dropped" },
+        { id: fundId, score: null, grade: "NR", ratingStatus: "not-rated", notRatedReason: "tokenized-fund-not-graded", internalDetail: "dropped" },
+        { id: "future-unsynced-fund", score: null, grade: "NR", ratingStatus: "not-rated", notRatedReason: "tokenized-fund-not-graded" },
         { id: "not-a-tracked-stablecoin", score: 12, grade: "F" },
       ],
     };
@@ -652,12 +653,12 @@ describe("PharosVille API proxy", () => {
     const response = await onRequest(makeContext("https://preview.example.com/api/safety-grades"));
     const body = await response.json() as typeof upstream;
 
-    // Grades outside the runtime active set can never be reached: `grades` has
-    // one consumer and it only ever indexes by an id that passed
-    // RUNTIME_ACTIVE_IDS. Malformed rows remain visible to contract validation.
-    expect(body.grades).toHaveLength(2);
+    // Grades outside RUNTIME_ACTIVE_IDS are dropped except unsynced tokenized-fund not-rated rows
+    // (which power the client's live fallback before weekly sync). Malformed rows stay visible to schema validation.
+    expect(body.grades).toHaveLength(3);
     expect(body.grades[0]).toEqual({ id: activeId, grade: "A-", ratingStatus: "rated", notRatedReason: null });
-    expect(body.grades[1]).toEqual({ id: fundId, grade: "NR", ratingStatus: "not-rated", notRatedReason: "tokenized-fund" });
+    expect(body.grades[1]).toEqual({ id: fundId, grade: "NR", ratingStatus: "not-rated", notRatedReason: "tokenized-fund-not-graded" });
+    expect(body.grades[2]).toEqual({ id: "future-unsynced-fund", grade: "NR", ratingStatus: "not-rated", notRatedReason: "tokenized-fund-not-graded" });
     expect(body.updatedAt).toBe(1_700_000_000);
     expect(body.model).toBeUndefined();
     expect(body.methodologyVersion).toBe("9.8");
@@ -939,13 +940,13 @@ describe("projection epoch and cache lifetime", () => {
     expect(response.headers.get("cache-control")).toBe(expected);
     if (control?.startsWith("no-store") || control?.startsWith("private")) expect(cache.putUrls).toEqual([]);
   });
-  it.each([false, true])("ignores pv1 normal and last-good bodies on outage (namespaced=%s)", async (namespaced) => {
+  it.each([false, true])("ignores pv3 normal and last-good bodies on outage (namespaced=%s)", async (namespaced) => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const cache = new MemoryEdgeCache(); installEdgeCache(cache);
     const url = "https://pharosville.pharos.watch/api/chains";
     const normal = namespaced ? epochCacheUrl(url) : url;
     const lastGood = `https://pharosville.pharos.watch/api/__last-good${new URL(normal).pathname}`;
-    for (const key of [normal, lastGood]) await cache.put(new Request(key), Response.json({ chains: [], globalChange7dPct: 1 }, { headers: { etag: '"pv1-obsolete"', "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)) } }));
+    for (const key of [normal, lastGood]) await cache.put(new Request(key), Response.json({ chains: [], globalChange7dPct: 1 }, { headers: { etag: '"pv3-obsolete"', "x-pharosville-last-good-stored-at": String(Math.floor(Date.now() / 1000)) } }));
     const fetcher = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("down"));
     const response = await onRequest(makeContext(url));
     expect(fetcher).toHaveBeenCalledOnce(); expect(response.status).toBe(502);

@@ -41,7 +41,13 @@ it("scans real search, every ledger tab, coin/landmark panels, sound and help st
   await screen.findByRole("heading", { name: "BUIDL" }); await scan();
   act(() => f.store.select({ kind: "landmark", id: "warehouse" }, { fly: false }));
   await screen.findByRole("heading", { name: "Bonded Warehouse" }); await scan();
-  act(() => { f.store.select(null); f.store.set({ ledgerOpen: true }); });
+  act(() => f.store.select({ kind: "landmark", id: "registry" }, { fly: false }));
+  await screen.findByRole("heading", { name: "The Registry" }); await scan();
+  act(() => { f.store.select(null); f.store.set({ searchOpen: true }); });
+  const searchInput = await screen.findByRole("combobox");
+  fireEvent.change(searchInput, { target: { value: "buidl" } }); await scan();
+  fireEvent.change(searchInput, { target: { value: "susdc" } }); await scan();
+  act(() => { f.store.set({ searchOpen: false, ledgerOpen: true }); });
   await screen.findByRole("heading", { name: "What you are looking at" });
   for (const tab of screen.getAllByRole("tab")) { fireEvent.click(tab); await scan(); }
   act(() => f.store.set({ ledgerOpen: false }));

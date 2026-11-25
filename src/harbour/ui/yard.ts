@@ -3,8 +3,9 @@
  *
  * Source order: the 'civic' service's yard list when it publishes one (it owns which hull sits on
  * which slip), else the pre-launch book synced from the pharos-watch registry
- * (src/harbour/data/prelaunch.json, every tracked launch on pharos.watch/upcoming), else this repo's
- * registry snapshot (`status: "pre-launch"`). Rows are read structurally and every field is guarded.
+ * (src/harbour/data/prelaunch.json, projected at arrival via virtual:pharosville-prelaunch and
+ * upgraded with narratives and milestone sources when DetailPanels mounts). Rows are read structurally
+ * and every field is guarded.
  */
 import type { LaunchMilestone, LaunchPhase } from "@shared/types/core";
 import prelaunchBook from "virtual:pharosville-prelaunch";

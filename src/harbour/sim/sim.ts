@@ -11,7 +11,7 @@
 import { HullStations, HULL_STATION_OFFSETS as SEP_K } from "./hull-clearance";
 import type { HarbourLayout, HullClass } from "../layout/types";
 import { u01 } from "../model/classify";
-import type { HarbourModel } from "../model/types";
+import { isTokenizedFund, type HarbourModel } from "../model/types";
 import { buildSimLayout, nearestNode, PREVAILING_WIND_FROM, type SimLayout, type Slot } from "./layout-graph";
 import { clearance, hullClearance, type CoastGrid } from "./obstacles";
 import { seedOutings, type OutingSeed } from "./outings";
@@ -539,14 +539,14 @@ export class HarbourSim {
         heelBase: Math.min(0.27, 0.13 + 0.035 * Math.log(1 + Math.abs(b.pegDeviationBps ?? 0) / 50)), lag: u01(b.id + "#lag") * 40, phi: u01(b.id + "#phi") * Math.PI * 2,
         yawA: 0.24 + 0.18 * u01(b.id + "#yaw"), yawP: YAW_PERIODS[Math.floor(u01(b.id + "#yp") * YAW_PERIODS.length)], yawP2: YAW_PERIODS[Math.floor(u01(b.id + "#yp2") * YAW_PERIODS.length)],
         laneOff: (u01(b.id + "#lane") * 2 - 1) * LANE_JITTER, beam: plan.beam,
-        shoals: b.state === "shoals", wrecked: b.state === "wrecked", reserve: b.state === "reserve",
+        shoals: b.state === "shoals", wrecked: b.state === "wrecked", reserve: isTokenizedFund(b),
         side: u01(b.id + "#side") < 0.5 ? 1 : -1, list: u01(b.id + "#list"), surge: 0.16 + 0.004 * plan.loa, bumpK: BUMP_A * Math.sqrt(plan.loa / 13),
-        tow: o?.tow ?? null, safePose: o?.safePose, reducedPlan: reduced && !replan && (o?.reducedPlan || o?.mode === MODE_PLAN) || false, reducedStill: false,
+        tow: isTokenizedFund(b) ? null : (o?.tow ?? null), safePose: o?.safePose, reducedPlan: reduced && !replan && (o?.reducedPlan || o?.mode === MODE_PLAN) || false, reducedStill: false,
       };
     });
     this.resizePose(n);
     this.assignShoalsAndWrecks();
-    for (const r of this.rt) if (r.voyage) {
+    for (const r of this.rt) if (r.voyage && !r.reserve) {
       if (r.voyage.kind === EV_TOW) this.wreckOf.set(r.id, r.voyage.endSlot);
       if (r.voyage.kind === EV_TO_SHOALS) this.shoalsOf.set(r.id, r.voyage.endSlot);
     }
@@ -743,8 +743,11 @@ export class HarbourSim {
       if (s < L.slots.length && !usedR.has(s)) { res.set(r.id, s); usedR.add(s); }
     }
     const freeR = L.reserve.filter((s) => !usedR.has(s));
-    for (const r of this.rt) {
-      if (!r.reserve || res.has(r.id)) continue;
+    const pendingR = this.rt
+      .map((r, i) => [r, this.model.boats[i]?.supply ?? 0] as const)
+      .filter(([r]) => r.reserve && !res.has(r.id))
+      .sort((a, b) => b[1] - a[1] || (a[0].id < b[0].id ? -1 : 1));
+    for (const [r] of pendingR) {
       let k = freeR.findIndex((s) => !L.slots[s].conflicts.some((c) => usedR.has(c)));
       if (k < 0) k = 0;
       let s = freeR.splice(k, 1)[0];
@@ -761,15 +764,59 @@ export class HarbourSim {
     let cx = 0, cz = 0;
     for (const s of src) { cx += L.slots[s].x; cz += L.slots[s].z; }
     if (src.length) { cx /= src.length; cz /= src.length; }
-    let maxR = 0;
-    if (zone === "reserve") for (const s of src) maxR = Math.max(maxR, hypot(L.slots[s].x - cx, L.slots[s].z - cz));
-    const a = k * 2.399963;
-    const r = zone === "reserve" ? (src.length ? maxR + 26 : 28) + 12 * Math.sqrt(k + 1) : SHOALS_RING + 6 * Math.sqrt(k + 1);
-    const node = nearestNode(L.graph, cx, cz);
+    let x = cx, z = cz;
+    if (zone === "reserve") {
+      const foot = slotFootprint("large", L), reach = foot.loa * 0.5 + 2.5, g = L.graph;
+      const v = L.view;
+      const laneClear = (px: number, pz: number): boolean => {
+        for (let i = 0; i < g.n; i++) {
+          const ax = g.x[i], az = g.z[i];
+          if (hypot(px - ax, pz - az) < 25) return false;
+          for (let j = 0; j < g.n; j++) {
+            if (i === j || g.next[i * g.n + j] !== j || !Number.isFinite(g.dist[i * g.n + j])) continue;
+            const dx = g.x[j] - ax, dz = g.z[j] - az, l2 = dx * dx + dz * dz;
+            const u = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / l2)) : 0;
+            if (hypot(px - (ax + dx * u), pz - (az + dz * u)) < 25) return false;
+          }
+        }
+        return true;
+      };
+      const ok = (px: number, pz: number): boolean => {
+        if (v && (px < v[0] + 15 || px > v[2] - 15 || pz < v[1] + 15 || pz > v[3] - 15)) return false;
+        if (L.hard(px, pz) < 14) return false;
+        for (let d = 0; d < 8; d++) {
+          const h = L.windFrom + d * (Math.PI / 4);
+          if (hullClearance(L.hard, px + Math.sin(h) * 2.5, pz + Math.cos(h) * 2.5, h, foot.loa, foot.beam) <= 1.5) return false;
+        }
+        for (const s of L.slots) {
+          const other = (s.loa ?? L.loa[s.cls]) * 0.5 + s.swing;
+          if (hypot(px - s.x, pz - s.z) < reach + other + 5) return false;
+        }
+        return laneClear(px, pz);
+      };
+      let found = false;
+      for (let rad = 28; rad <= 380 && !found; rad += 14) {
+        const steps = Math.max(16, Math.round(rad * 0.6));
+        for (let s = 0; s < steps; s++) {
+          const off = s === 0 ? 0 : (s % 2 === 1 ? 1 : -1) * Math.ceil(s / 2);
+          const ang = -Math.PI / 4 + (off / steps) * Math.PI * 2;
+          const px = cx + Math.cos(ang) * rad, pz = cz + Math.sin(ang) * rad;
+          if (ok(px, pz)) { x = px; z = pz; found = true; break; }
+        }
+      }
+      if (!found) {
+        const a = k * 2.399963, r = 90 + 12 * Math.sqrt(k + 1);
+        x = cx + Math.cos(a) * r; z = cz + Math.sin(a) * r;
+      }
+    } else {
+      const a = k * 2.399963, r = SHOALS_RING + 6 * Math.sqrt(k + 1);
+      x = cx + Math.cos(a) * r; z = cz + Math.sin(a) * r;
+    }
+    const node = nearestNode(L.graph, x, z);
     const slot: Slot = {
       index: L.slots.length, id: `${zone}/extra/${k + 1}`, where: zone, cls: zone === "reserve" ? "large" : "medium", kind: zone,
-      x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r, heading: L.windFrom, swing: zone === "shoals" ? 3 : zone === "reserve" ? 2.5 : 0, inNode: node, outNode: node,
-      approach: node >= 0 ? [[L.graph.x[node], L.graph.z[node]], [cx + Math.cos(a) * r, cz + Math.sin(a) * r]] : [[cx, cz]], astern: false,
+      x, z, heading: L.windFrom, swing: zone === "shoals" ? 3 : zone === "reserve" ? 2.5 : 0, inNode: node, outNode: node,
+      approach: node >= 0 ? [[L.graph.x[node], L.graph.z[node]], [x, z]] : [[x, z]], astern: false,
       mode: zone === "wreck" ? "beached" : "anchor", warp: null, line: null, conflicts: [],
     };
     L.slots.push(slot);
@@ -779,7 +826,7 @@ export class HarbourSim {
   /** No voyage: the hull is wherever its state says right now. */
   private placeStatic(i: number): void {
     const r = this.rt[i];
-    r.voyage = null; r.reducedPlan = false; r.reducedStill = false;
+    r.voyage = null; r.tow = null; r.reducedPlan = false; r.reducedStill = false;
     if (r.wrecked) { r.mode = MODE_HOLD; r.holdSlot = this.wreckOf.get(r.id)!; r.holdPhase = PH_ANCHORED; return; }
     if (r.shoals) { r.mode = MODE_HOLD; r.holdSlot = this.shoalsOf.get(r.id)!; r.holdPhase = PH_ANCHORED; return; }
     if (r.reserve) { r.mode = MODE_HOLD; r.holdSlot = this.reserveOf.get(r.id)!; r.holdPhase = PH_ANCHORED; r.holdSince = -1e9; return; }

@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import listingPolicyVirtual from "virtual:pharosville-listing-policy";
-import { buildListingPolicy, REVIEWED_LIVE_ADAPTER_FUND_LINKS } from "../../scripts/harbour/sync-listing-policy.mjs";
+import { buildListingPolicy, buildSocialCards, REVIEWED_LIVE_ADAPTER_FUND_LINKS } from "../../scripts/harbour/sync-listing-policy.mjs";
 import { buildPrelaunchBook } from "../../scripts/harbour/sync-prelaunch.mjs";
 import { buildRuntimeActiveIds, buildRuntimeSlim } from "../../scripts/harbour/sync-check.mjs";
 import { RUNTIME_ACTIVE_IDS } from "../../shared/lib/stablecoins/runtime-active-ids";
@@ -66,7 +68,7 @@ describe("sync-listing-policy (Listing Policy 2.0)", () => {
       navToken: false,
       pegCurrency: "USD",
       archetype: "tbill",
-      backedIds: ["susdc-vault", "usdc-circle"],
+      backedIds: ["usdc-circle"],
     });
     expect("liveAdapterBackedIds" in policy.funds["buidl-blackrock"]).toBe(false);
 
@@ -74,7 +76,7 @@ describe("sync-listing-policy (Listing Policy 2.0)", () => {
       navToken: true,
       pegCurrency: "EUR",
       archetype: "tbill",
-      backedIds: ["eur0-usual", "rcusd-r25"],
+      backedIds: ["eur0-usual"],
     });
     expect(policy.funds["jaaa-janus-henderson-anemoy"]).toEqual({
       navToken: true,
@@ -92,6 +94,30 @@ describe("sync-listing-policy (Listing Policy 2.0)", () => {
         { id: "wusdc-bare", symbol: "wUSDC", name: "Wrapped USDC", kind: "variant" },
       ],
     });
+
+    const cards = buildSocialCards({ registry, listingDecisions });
+    expect(Object.keys(cards.core)).toEqual(["eur0-usual", "usdc-circle", "usdf-falcon"]);
+    expect(Object.keys(cards.funds)).toEqual(["buidl-blackrock", "eutbl-spiko", "jaaa-janus-henderson-anemoy", "jtrsy-anemoy"]);
+    expect(cards.core["susdc-vault"]).toBeUndefined();
+    expect(cards.core["rcusd-r25"]).toBeUndefined();
+    expect(cards.core["delisted-coin"]).toBeUndefined();
+  });
+
+  it("reports missing/unrecognized active listing classes and keeps frozenIds disjoint from excludedIds", () => {
+    const { policy, problems } = buildListingPolicy({
+      registry: [
+        { id: "unclassified-coin", name: "Unclassified", symbol: "UNC", flags: { pegCurrency: "USD" } },
+        { id: "frozen-excluded", name: "Frozen Excl", symbol: "FE", status: "frozen", flags: { pegCurrency: "USD" } },
+      ],
+      listingDecisions: {
+        policyVersion: "2.0",
+        listingClassById: { "frozen-excluded": "excluded" },
+      },
+    });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/unclassified-coin/);
+    expect(policy.frozenIds).toEqual(["frozen-excluded"]);
+    expect(policy.excludedIds).toEqual([]);
   });
 
   it("omits reviewed live-adapter links when the target coin is inactive or absent", () => {
@@ -178,7 +204,9 @@ describe("buildRuntimeActiveIds & buildRuntimeSlim Policy 2.0 filtering", () => 
 });
 
 describe("virtual:pharosville-listing-policy synced artifact", () => {
-  it("loads the synced Policy 2.0 catalog cleanly through Vite", () => {
+  it("loads the synced Policy 2.0 catalog cleanly through Vite with lossless round-trip parity", () => {
+    const rawPolicy = JSON.parse(readFileSync(resolve(process.cwd(), "shared/data/stablecoins/listing-policy.json"), "utf8"));
+    expect(listingPolicyVirtual).toEqual(rawPolicy);
     expect(listingPolicyVirtual.policyVersion).toBe("2.0");
     expect(listingPolicyVirtual.fundIds.length).toBeGreaterThanOrEqual(10);
     for (const fid of listingPolicyVirtual.fundIds) {

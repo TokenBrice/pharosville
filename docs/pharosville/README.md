@@ -1,6 +1,6 @@
 # PharosVille Maintenance Guide
 
-Last updated: 2026-10-19
+Last updated: 2026-11-25
 
 Current code and route contracts win over historical plans. Use this directory
 for durable operational guidance; use `agents/` for plans and handoffs, not as
@@ -25,9 +25,10 @@ an alternative source of runtime truth.
 ## Runtime summary
 
 PharosVille is The Harbour: a classical Mediterranean harbour town under the
-Pharos of Alexandria, where every stablecoin is an ancient ship sailing a
+Pharos of Alexandria, where every active core stablecoin is an ancient ship sailing a
 circuit between its chains' piers, docking longest where it holds the most
-supply. The lighthouse beam is the Pharos Stability Index; sea
+supply, while tokenized funds anchor separately in Reserve Anchorage off the
+Bonded Warehouse. The lighthouse beam is the Pharos Stability Index; sea
 state, weather and fog carry off-peg share, stress signals and stale data.
 `src/harbour/` holds one three.js WebGL2 `Engine` (`engine/`), ordered world
 systems (`systems.ts`), the same-origin data feed, model and sim (`data/`,

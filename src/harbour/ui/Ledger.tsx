@@ -167,7 +167,7 @@ function Legend({ model }: { model: HarbourModel | null }) {
         <h3 className="hb-sec-h hb-sc">Harbour now</h3>
         {([["pharos", "Pharos Stability Index", "stability"], ["shoals", "Off peg", "pegSummary"], ["storm-mast", "Early warning", "stress"]] as const).map(([id, label, source]) => <p key={id} className="hb-caption">{label} — {landmarkFact(id, model, null).fact} {stamped(readingSentence(model, source))}</p>)}
         <p className="hb-caption">Supply (USD) — {money(model?.supplyTotal)}. {stamped(readingSentence(model, "stablecoins"))}</p>
-        {reserveCount > 0 && <p className="hb-caption">Reserve Anchorage — {landmarkFact("reserve-anchorage", model, null).fact}.</p>}
+        {reserveCount > 0 && <p className="hb-caption">Reserve Anchorage — {landmarkFact("reserve-anchorage", model, null).fact}. {stamped(readingSentence(model, "stablecoins"))}</p>}
         <button type="button" className="hb-textbtn" onClick={() => store.select({ kind: "landmark", id: "keeperslog" }, { fly: false })}>The Keeper’s Log</button>
       </section>
       <p className="hb-legend-intro">The harbour is the data. Nothing moves without a declared meaning, and anything that is only decoration says so.</p>
@@ -296,8 +296,8 @@ function Funds({ model }: { model: HarbourModel | null }) {
   const byId = useMemo(() => new Map((model?.boats ?? []).map((b) => [b.id, b])), [model]);
   const backedText = (b: Boat) => (b.fundMeta?.backedIds ?? []).map((id) => byId.get(id)?.symbol ?? id).join(", ");
   const cols = useMemo<Col<Boat>[]>(() => [
-    { key: "name", label: "Fund", get: (b) => b.name, cell: (b) => <span className="hb-wreck-name"><Logo src={b.logo} label={b.symbol} color={b.brandColor} size={20} />{readBtn(store, { kind: "boat", id: b.id }, b.symbol, `${b.symbol}, ${b.name}`)}<em className="hb-trunc" title={b.name}>{b.name !== b.symbol ? b.name : ""}</em></span> },
-    { key: "nav", priority: 2, label: "NAV", get: (b) => (b.fundMeta?.navToken ? "NAV" : "$1 NAV") },
+    { key: "symbol", label: "Fund", get: (b) => b.symbol, cell: (b) => <span className="hb-wreck-name"><Logo src={b.logo} label={b.symbol} color={b.brandColor} size={20} />{readBtn(store, { kind: "boat", id: b.id }, b.symbol, `${b.symbol}, ${b.name}`)}<em className="hb-trunc" title={b.name}>{b.name !== b.symbol ? b.name : ""}</em></span> },
+    { key: "nav", priority: 2, label: "NAV", get: (b) => (b.fundMeta?.navToken === true ? "Accruing NAV" : b.fundMeta?.navToken === false ? "Fixed $1" : "Not stated") },
     { key: "backed", priority: 2, wrap: true, label: "Backs", get: (b) => b.fundMeta?.backedIds.length ?? 0, cell: (b) => backedText(b) || "—" },
     { key: "supply", label: "Reserve AUM", num: true, get: (b) => b.supply, cell: (b) => money(b.supply) },
     locateCol(store, (b) => b.symbol, (b) => b.symbol, (b) => ({ kind: "boat", id: b.id })),

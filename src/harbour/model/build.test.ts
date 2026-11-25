@@ -239,9 +239,9 @@ describe("Policy 2.0 classification and strict core-aggregate separation", () =>
       symbol: "BUIDL", name: "BlackRock BUIDL",
       chainCirculating: { Ethereum: { current: 2e9 }, Solana: { current: 1e9 } }, chains: ["Ethereum", "Solana"],
     }, true);
-    const dynamicFund = mkRow("future-tbill-fund", 1.5e9, {
+    const dynamicFund = mkRow("future-tbill-fund", 15e9, {
       symbol: "FTBL", name: "Future T-Bill Fund", pegType: "peggedEUR",
-      chainCirculating: { Solana: { current: 1.5e9 } }, chains: ["Solana"],
+      chainCirculating: { Solana: { current: 15e9 } }, chains: ["Solana"],
     }, true);
 
     const p = makePayloads({ coins: [coreA, coreB, buidl, dynamicFund] });
@@ -271,7 +271,7 @@ describe("Policy 2.0 classification and strict core-aggregate separation", () =>
     expect(m.reserveCount).toBe(2);
     expect(m.excludedCount).toBe(0);
     expect(m.supplyTotal).toBe(20e9);
-    expect(m.reserveSupplyTotal).toBe(4.5e9);
+    expect(m.reserveSupplyTotal).toBe(18e9);
 
     const bBuidl = m.boats.find((b) => b.id === "buidl-blackrock")!;
     const bDyn = m.boats.find((b) => b.id === "future-tbill-fund")!;
@@ -302,7 +302,28 @@ describe("Policy 2.0 classification and strict core-aggregate separation", () =>
     }
     expect(bBuidl.fundMeta).toMatchObject({ navToken: false, pegCurrency: "USD", archetype: "tbill" });
     expect(bBuidl.fundMeta!.backedIds.length).toBeGreaterThan(0);
-    expect(bDyn.fundMeta).toEqual({ navToken: true, pegCurrency: "EUR", archetype: null, backedIds: [] });
+    // Unsynced fallback fund uses navToken: null (not fabricated) and caps hullClass at "large" even at $15B AUM
+    expect(bDyn.fundMeta).toEqual({ navToken: null, pegCurrency: "EUR", archetype: null, backedIds: [] });
+    expect(bDyn.hullClass).toBe("large");
+
+    // Flows reading coins exclude tokenized funds; coreCount excludes wrecked core coins
+    const pFlows = makePayloads({ coins: [coreA, coreB, buidl] });
+    pFlows.mintBurn = {
+      meta: { updatedAt: T0_MS / 1000, ageSeconds: 0, status: "fresh" }, fetchedAtMs: T0_MS,
+      data: {
+        hourly: [{ hourTs: Math.floor(T0_MS / 1000) - 3600, netFlowUsd: 1e6, mintVolumeUsd: 2e6, burnVolumeUsd: 1e6 }],
+        coins: [
+          { stablecoinId: coreA.id, mintVolume24hUsd: 2e6, burnVolume24hUsd: 1e6, netFlow24hUsd: 1e6, netFlow7dUsd: 1e6 },
+          { stablecoinId: buidl.id, mintVolume24hUsd: 9e7, burnVolume24hUsd: 0, netFlow24hUsd: 9e7, netFlow7dUsd: 9e7 },
+        ],
+      },
+    };
+    const mFlows = buildHarbourModel(pFlows, T0_MS, {
+      pieredChains: opts.pieredChains,
+      dead: [{ id: coreB.id, symbol: "USDT", name: "Tether", causeOfDeath: "algorithmic-failure", deathDate: "2024-01", peakMcap: 1e9, pegCurrency: "USD", obituary: "test", sourceUrl: "https://example.com", sourceLabel: "Test" }],
+    });
+    expect(mFlows.coreCount).toBe(1);
+    expect((mFlows.readings.flows.coins ?? []).map((c) => c.stablecoinId)).toEqual([coreA.id]);
 
     // Harbours strictly reflect core boats only (Solana only had funds -> excluded from harbours)
     expect(m.harbours.map((h) => h.chain).sort()).toEqual(["Base", "Ethereum", "Tron"]);

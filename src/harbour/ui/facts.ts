@@ -127,7 +127,9 @@ export function officeLine(state: OfficeState | undefined, change30d: number | n
 /** The single sentence that explains the boat's position from the data. */
 export function whyHere(b: Boat, w: Whereabouts): string {
   if (isTokenizedFund(b) || w.kind === "reserve") {
-    return "Anchored in Reserve Anchorage off the Bonded Warehouse. Retained as a tokenized fund because active stablecoins hold it as reserve backing; excluded from core stablecoin totals and Safety Scores.";
+    return b.fundMeta?.backedIds.length
+      ? "Anchored in Reserve Anchorage off the Bonded Warehouse. Retained as a tokenized fund because active stablecoins hold it as reserve backing; excluded from core stablecoin totals and Safety Scores."
+      : "Anchored in Reserve Anchorage off the Bonded Warehouse. Retained as a tokenized fund outside core stablecoin totals and Safety Scores.";
   }
   if (w.kind === "route-unavailable") return ROUTE_UNAVAILABLE;
   if (w.kind === "sailing" && w.place === "Wreck Cove") return "Under tow to Wreck Cove: this coin has died.";
@@ -232,9 +234,10 @@ export function landmarkFact(id: string, m: HarbourModel | null, underWay: numbe
       return { fact: `${far.length} chains without a pier · ${money(far.reduce((s, h) => s + h.supplyUsd, 0))}. ${FAR_PORTS_LINE}` };
     }
     case "registry": {
-      const core = m?.coreCount ?? m?.boats.filter(isCoreBoat).length ?? m?.payloadCount ?? 0;
+      const core = m?.coreCount ?? m?.boats.filter((b) => isCoreBoat(b) && b.state !== "wrecked").length ?? 0;
       const reserve = m?.reserveCount ?? m?.boats.filter(isTokenizedFund).length ?? 0;
-      return { fact: reserve > 0 ? `${core} stablecoins · ${reserve} tokenized ${reserve === 1 ? "fund" : "funds"} ungraded` : `${core} stablecoins on the register` };
+      const coreLabel = `${core} ${core === 1 ? "stablecoin" : "stablecoins"}`;
+      return { fact: reserve > 0 ? `${coreLabel} · ${reserve} tokenized ${reserve === 1 ? "fund" : "funds"} ungraded` : `${coreLabel} on the register` };
     }
     case "harbourmaster": return { fact: underWay == null ? "keeps the harbour" : `${underWay} boats under way` };
     case "slipway": return { fact: counts.yard != null ? `${counts.yard} records · Awaiting admission to the tracked fleet.` : "Awaiting admission to the tracked fleet." };
@@ -298,5 +301,5 @@ export const RESERVE_RULE = "Reserve Anchorage holds tokenized funds off the Bon
 
 /** Shared guide/legend wording: teaching stays on demand and adds no analytical mapping. */
 export const PHAROS_GUIDE = "A fire in the lantern, thrown out to sea by a bronze mirror. A slow, wide sweep is a calm market; a faster, shorter beam is stress. A dark lantern means no reading. Its light passes over the ships and walls it reaches; a horn shutter narrows it when the index was computed without stress signals or depeg events.";
-export const BOATS_GUIDE = "Every stablecoin is one boat. Boats visit each chain in proportion to their supply there; sailing is not a bridge transfer.";
+export const BOATS_GUIDE = "Every active core stablecoin is one boat; tokenized funds anchor in Reserve Anchorage. Core boats visit each chain in proportion to their supply there; sailing is not a bridge transfer.";
 export const FOG_GUIDE = "When the feed stops refreshing, fog rolls in and every boat finishes its leg and holds. Nothing pretends to be live.";

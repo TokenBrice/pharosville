@@ -35,12 +35,12 @@ describe("one bounded browser observation", () => {
     const old = JSON.stringify({ ...observation(), version: 1 });
     expect(createReadingSession(() => storage(old), now).getSnapshot().prior).toBeNull();
     const wire = JSON.parse(serializeObservation(observation()));
-    expect(wire.v).toBe(2);
-    for (const v of [1, 3]) expect(parseObservation(JSON.stringify({ ...wire, v }), now)).toBeNull();
+    expect(wire.v).toBe(3);
+    for (const v of [1, 2, 4]) expect(parseObservation(JSON.stringify({ ...wire, v }), now)).toBeNull();
   });
 
   it("silently tolerates corrupt records and denied reads/writes/removals", () => {
-    for (const raw of ["{", "null", "[]", "{}", JSON.stringify({ ...observation(), version: 3 })]) {
+    for (const raw of ["{", "null", "[]", "{}", JSON.stringify({ ...observation(), version: 4 })]) {
       expect(createReadingSession(() => storage(raw), now).getSnapshot().prior).toBeNull();
     }
     const denied = createReadingSession(() => { throw new Error("denied"); }, now);

@@ -589,7 +589,7 @@ The pre-launch book (`src/harbour/data/prelaunch.json`), the logo book
 (`public/logos/` + `data/logos.json`), brand colours (`data/brand-colors.json`),
 the cemetery behind Wreck Cove (`shared/data/dead-stablecoins.json`), and the
 Listing Policy 2.0 runtime catalogs (`shared/data/stablecoins/listing-policy.json`,
-`runtime-active-ids.json`, `runtime-slim.json`) are vendored from
+`runtime-active-ids.json`, `runtime-slim.json`, `social-cards.json`) are vendored from
 `TokenBrice/pharos-watch`. One command refreshes all of them:
 
 ```bash

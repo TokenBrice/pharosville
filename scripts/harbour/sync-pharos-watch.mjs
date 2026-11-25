@@ -10,10 +10,10 @@
  * In order: logos (public/logos + data/logos.json, scripts/harbour/sync-logos.mjs) → brand colours
  * (data/brand-colors.json, sync-brand-colors.mjs) → the yard's order book (src/harbour/data/prelaunch.json,
  * sync-prelaunch.mjs) → the cemetery (shared/data/dead-stablecoins.json: Wreck Cove's names, causes, epitaphs and
- * obituaries, projected onto shared/'s strict schema; schema-gated by sync-schema.mjs) → the browser's slim registry
- * (shared/data/stablecoins/runtime-slim.json: the pre-launch and frozen coins of this repo's coins.generated.json, in
- * canonical order, plus runtime-active-ids.json for the active coin-panel allowlist;
- * sync-check.mjs fails when either is stale). Everything is planned and
+ * obituaries, projected onto shared/'s strict schema; schema-gated by sync-schema.mjs) → the synced Policy 2.0
+ * catalogs (shared/data/stablecoins/{listing-policy,runtime-active-ids,runtime-slim,social-cards}.json derived
+ * directly from upstream coins, canonical order, listing decisions and reserves; sync-check.mjs enforces every invariant).
+ * Everything is planned and
  * validated in memory first: on any schema violation it prints them, writes NOTHING and exits 1.
  * Deterministic and idempotent: a second run against the same source changes no byte. The stamp
  * data/pharos-watch-sync.json (source commit, sync date) is rewritten only when data changed.
@@ -29,7 +29,7 @@ import { findMediaFileProblems } from "../pharosville/validate-runtime-media.mjs
 import { BRAND_ENTRY, planBrandColors } from "./sync-brand-colors.mjs";
 import { planLogos } from "./sync-logos.mjs";
 import { buildPrelaunchBook } from "./sync-prelaunch.mjs";
-import { buildListingPolicy, LISTING_POLICY_PATH } from "./sync-listing-policy.mjs";
+import { buildListingPolicy, buildSocialCards, LISTING_POLICY_PATH, SOCIAL_CARDS_PATH } from "./sync-listing-policy.mjs";
 import { buildRuntimeSlim, RUNTIME_SLIM, buildRuntimeActiveIds, RUNTIME_ACTIVE_IDS } from "./sync-check.mjs";
 import { loadCanonicalOrder, loadListingDecisions, loadRedirects, loadRegistry, loadReservesDomain, SOURCE_PATHS } from "./sync-source.mjs";
 
@@ -47,6 +47,7 @@ const FILES = {
   listingPolicy: LISTING_POLICY_PATH,
   slim: RUNTIME_SLIM,
   activeIds: RUNTIME_ACTIVE_IDS,
+  socialCards: SOCIAL_CARDS_PATH,
 };
 /** shared/'s DeadStablecoinAssetSchema is strict: the source's extra fields (logo, mechanismArchetype, recordedAt, …) are dropped. */
 const DEAD_KEYS = new Set(["id", "name", "symbol", "llamaId", "pegCurrency", "causeOfDeath", "deathDate", "peakMcap", "epitaph", "obituary", "sourceUrl", "sourceLabel", "contracts"]);
@@ -136,11 +137,12 @@ try {
   problems.push(...P.problems);
   const prelaunchBefore = await readJson(join(ROOT, FILES.prelaunch)).catch(() => ({ coins: [] }));
 
-  // 4. Listing Policy 2.0 catalog & runtime registry cuts
+  // 4. Listing Policy 2.0 catalog, edge social-card table & runtime registry cuts
   const LP = buildListingPolicy({ registry, listingDecisions, reservesById });
   problems.push(...LP.problems);
   const slimText = buildRuntimeSlim(registry, canonicalOrder, listingDecisions);
   const activeIdsText = buildRuntimeActiveIds(registry, canonicalOrder, listingDecisions);
+  const socialCardsText = `${JSON.stringify(buildSocialCards({ registry, listingDecisions }), null, 1)}\n`;
 
   // 5. the cemetery, projected onto shared/'s schema and gated by it
   const deadSrc = await readJson(join(SOURCE, "shared/data/dead-stablecoins.json"));
@@ -174,6 +176,7 @@ try {
       [FILES.listingPolicy, `${JSON.stringify(LP.policy, null, 2)}\n`],
       [FILES.slim, slimText],
       [FILES.activeIds, activeIdsText],
+      [FILES.socialCards, socialCardsText],
     ];
     const changed = [];
     for (const [rel, text] of outputs) {
