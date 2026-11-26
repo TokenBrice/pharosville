@@ -2,7 +2,9 @@ import * as THREE from "three";
 import { GUST_GLSL } from "./gust";
 import type { BeamUniforms } from "../beam/uniforms";
 import { extraEnabled } from "../engine/extras";
-import { SWELL_DIR, SWELL_PHASE_GLSL } from "../ocean/waves";
+import { SWELL_DIR } from "../ocean/waves";
+import { OCEAN_DISP_GLSL } from "../ocean/shaders/ocean-disp";
+import type { OceanService } from "../ocean/ocean-system";
 
 /**
  * Precipitation, two GPU-instanced draws (no per-particle CPU work):
@@ -222,7 +224,7 @@ void main() {
 
 const GROUND_VERT = /* glsl */ `
 ${COMMON}
-${SWELL_PHASE_GLSL}
+${OCEAN_DISP_GLSL}
 const vec2 SPRAY_SWELL_DIR = vec2(${SWELL_DIR[0].toFixed(5)}, ${SWELL_DIR[1].toFixed(5)});
 attribute vec4 aSeed;          // splash: xz seed, phase (>= 0), size | spray: phase, rand, -1, size
 attribute vec4 aAnchor;        // spray: x, z, outward nx, nz | splash: unused
@@ -233,6 +235,12 @@ uniform float uSpray;          // spray strength 0..1
 uniform vec2 uWindV;
 uniform float uSprayScale;     // plume size (m)
 uniform vec3 uCam;
+uniform float uOceanOn;
+uniform float uTime;
+uniform vec4 uSea;
+uniform vec4 uSdfBounds;
+uniform sampler2D uSdf;
+uniform vec2 uSceneCenter;
 varying vec2 vUv;
 varying float vA;
 varying float vKind;
@@ -286,7 +294,21 @@ void main() {
     float id = floor(cyc);
     vec2 q = vec2(pHash(aSeed.xy * 97.0 + id * 1.37), pHash(aSeed.yx * 89.0 + id * 2.11));
     vec2 xz = uBoxMin.xz + q * uBoxSize.xz;
-    float y = groundAt(xz) + 0.05;
+    float gH = groundAt(xz);
+    float y = gH + 0.05;
+    if (gH <= 0.02 && uOceanOn > 0.5) {
+      vec2 suv = (xz - uSdfBounds.xy) / max(uSdfBounds.zw - uSdfBounds.xy, vec2(1.0));
+      float inside = step(0.0, suv.x) * step(suv.x, 1.0) * step(0.0, suv.y) * step(suv.y, 1.0);
+      float mf = smoothstep(470.0, 560.0, length(xz - uSceneCenter));
+      vec4 sd = textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0);
+      float coast = mix(200.0, (mix(sd.r, 1.0, mf) - 0.5) * 128.0, inside);
+      float depth = mix(40.0, mix(sd.g, 1.0, mf) * 40.0, inside);
+      float damp = smoothstep(0.0, 34.0, coast) * 0.9 + 0.1 * smoothstep(-2.0, 2.0, coast);
+      float camD0 = length(xz - uCam.xz);
+      float amp = uSea.x * damp * (1.0 - smoothstep(2500.0, 5000.0, camD0));
+      vec2 sn = uFftOn > 0.5 ? hbShoreNormal(uSdf, suv, coast, inside) : vec2(0.0);
+      y += hbOceanDisp(xz, uTime, amp, damp, camD0, depth, coast, sn).y;
+    }
     float r = min(uSplashSize * (0.20 + 0.88 * life) * (0.76 + 0.44 * aSeed.w), 0.24);
     vec3 wp = vec3(xz.x + corner.x * r, y, xz.y + corner.y * r);
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
@@ -352,6 +374,7 @@ export interface PrecipShared {
   uWindowGlow: THREE.IUniform<number>;
   beam: BeamUniforms;
   noise: THREE.Texture;
+  ocean?: OceanService["shared"] | undefined;
 }
 
 export interface PrecipFrame {
@@ -385,6 +408,8 @@ export class Precipitation {
   private readonly fallMat: THREE.ShaderMaterial;
   private readonly groundMat: THREE.ShaderMaterial;
   private readonly common: Record<string, THREE.IUniform>;
+  private fallbackFft: THREE.DataArrayTexture | null = null;
+  private fallbackSdf: THREE.DataTexture | null = null;
   private sprayCount = 0;
   private boxScale = 0;
 
@@ -437,22 +462,55 @@ export class Precipitation {
     this.groundGeo.setAttribute("aSeed", new THREE.InstancedBufferAttribute(gs, 4));
     this.groundGeo.setAttribute("aAnchor", new THREE.InstancedBufferAttribute(new Float32Array((MAX_SPRAY + MAX_SPLASH) * 4), 4));
     this.groundGeo.instanceCount = 0;
+    const oc = shared.ocean;
+    if (!oc) {
+      const fd = new Uint8Array(6 * 4);
+      for (let i = 0; i < 3; i++) fd[i * 4 + 3] = 255;
+      this.fallbackFft = Object.assign(new THREE.DataArrayTexture(fd, 1, 1, 6), { needsUpdate: true });
+      this.fallbackSdf = Object.assign(new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1), { needsUpdate: true });
+    }
     this.groundMat = new THREE.ShaderMaterial({
       name: "hb_weather_ground", vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG,
       uniforms: {
         ...this.common,
         uSplashRate: { value: 2.5 }, uSplashSize: { value: 0.36 }, uSpray: { value: 0 }, uSprayScale: { value: 6 },
         uNoise: { value: shared.noise }, uSplashAlpha: { value: 0.24 },
+        uOceanOn: { value: oc ? 1 : 0 },
+        uTime: oc?.uTime ?? { value: 0 },
+        uSea: oc?.uSea ?? { value: new THREE.Vector4() },
+        uSdfBounds: oc?.uSdfBounds ?? { value: new THREE.Vector4(-1, -1, 1, 1) },
+        uSdf: oc?.uSdf ?? { value: this.fallbackSdf },
+        uSceneCenter: oc?.uSceneCenter ?? { value: new THREE.Vector2() },
+        uFftAtlas: { value: null },
+        uFftOn: oc?.uFftOn ?? { value: 0 },
+        uFftScales: oc?.uFftScales ?? { value: new THREE.Vector4(1 / 509, 1 / 97, 1 / 17.3, 0.55) },
+        uFftWeights: oc?.uFftWeights ?? { value: new THREE.Vector4(1, 1, 1, 1) },
       },
       transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
       blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
       blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
+    this.groundMat.uniforms.uFftAtlas = oc?.uFftAtlas ?? { value: this.fallbackFft };
     this.ground = new THREE.Mesh(this.groundGeo, this.groundMat);
     this.ground.frustumCulled = false;
     this.ground.renderOrder = 79;
     this.ground.name = "weather-ground";
     this.ground.visible = false;
+  }
+
+  /** Bind ocean shared uniforms lazily when OceanSystem initializes after WeatherSystem (systems.ts order). */
+  bindOcean(oc: OceanService["shared"]): void {
+    const u = this.groundMat.uniforms;
+    u.uOceanOn.value = 1;
+    u.uTime = oc.uTime;
+    u.uSea = oc.uSea;
+    u.uSdfBounds = oc.uSdfBounds;
+    u.uSdf = oc.uSdf;
+    u.uSceneCenter = oc.uSceneCenter;
+    u.uFftAtlas = oc.uFftAtlas;
+    u.uFftOn = oc.uFftOn;
+    u.uFftScales = oc.uFftScales;
+    u.uFftWeights = oc.uFftWeights;
   }
 
   /** Spray anchors: points just off the surf line (x, z, outward normal). Instances [0, n) of the ground draw. */
@@ -532,5 +590,7 @@ export class Precipitation {
     this.groundGeo.dispose();
     this.fallMat.dispose();
     this.groundMat.dispose();
+    this.fallbackFft?.dispose();
+    this.fallbackSdf?.dispose();
   }
 }

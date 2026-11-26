@@ -145,6 +145,24 @@ describe("engine preparation and rendered readiness", () => {
     expect(dispose).toHaveBeenCalledOnce();
   });
 
+  it("does not eagerly warm upper-tier ocean modules on first fleet frame when auto mode starts on Low", async () => {
+    const { engine } = frameEngine();
+    engine.post.preparationEntries = vi.fn(() => ({ entries: [], dispose() {} }));
+    engine.preparation.prepareWorld.mockResolvedValue({ status: "complete", sources: new Set(), dispose: vi.fn() });
+    const prepareTier = vi.fn();
+    engine.ctx.services.set("ocean", { prepareTier, preparationScope: () => () => {} } as never);
+    Object.assign(engine.governor, { tier: "low", auto: true, settings: TIERS.low });
+    // Restore real warmQuality so first-fleet-frame recordRendered() exercises the actual production warm-up
+    const realWarm = (Engine.prototype as unknown as { warmQuality: () => void }).warmQuality;
+    (engine as unknown as { warmQuality: () => void }).warmQuality = realWarm;
+    engine.ctx.services.set("fleet-frame", { revision: 1, boats: 10, drawn: 10 } as never);
+    (engine as unknown as { recordRendered: () => void }).recordRendered();
+    await Promise.resolve();
+    expect(prepareTier).toHaveBeenCalledWith("low");
+    expect(prepareTier).not.toHaveBeenCalledWith("medium");
+    expect(prepareTier).not.toHaveBeenCalledWith("high");
+  });
+
   it("retries superseded world preparations but releases late completion after teardown", async () => {
     const { engine } = frameEngine();
     const dispose = vi.fn();

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { EngineContext } from "../engine/types";
+import { OCEAN_DISP_GLSL } from "../ocean/shaders/ocean-disp";
 
 /**
  * The route as a chart line (12-M3): when a circuit boat is selected, today's rounds under the plan are
@@ -54,17 +55,38 @@ export function resample(pts: Float32Array, step: number): number[] {
 }
 
 const VERT = /* glsl */ `
-attribute vec2 aSide;     // side (-1 | 1), kind (0 current leg, 1 later leg, 2 port tick)
-attribute vec2 aNormal;   // ground-plane unit normal of the line here
-attribute float aS;       // arc length from the start of today's rounds (m)
+attribute vec2 aSide;
+attribute vec2 aNormal;
+attribute float aS;
 uniform float uWidth;
+uniform float uOceanOn;
+uniform float uTime;
+uniform vec3 uCameraPos;
+uniform vec4 uSea;
+uniform vec4 uSdfBounds;
+uniform sampler2D uSdf;
+uniform vec2 uSceneCenter;
 varying float vS;
 varying float vKind;
+${OCEAN_DISP_GLSL}
 void main() {
   vS = aS;
   vKind = aSide.y;
   float w = uWidth * (aSide.y > 1.5 ? 1.4 : aSide.y > 0.5 ? 0.7 : 1.0);
   vec3 p = position + vec3(aNormal.x, 0.0, aNormal.y) * aSide.x * w;
+  if (uOceanOn > 0.5) {
+    vec2 suv = (p.xz - uSdfBounds.xy) / max(uSdfBounds.zw - uSdfBounds.xy, vec2(1.0));
+    float inside = step(0.0, suv.x) * step(suv.x, 1.0) * step(0.0, suv.y) * step(suv.y, 1.0);
+    float mf = smoothstep(470.0, 560.0, length(p.xz - uSceneCenter));
+    vec4 sd = textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0);
+    float coast = mix(200.0, (mix(sd.r, 1.0, mf) - 0.5) * 128.0, inside);
+    float depth = mix(40.0, mix(sd.g, 1.0, mf) * 40.0, inside);
+    float damp = smoothstep(0.0, 34.0, coast) * 0.9 + 0.1 * smoothstep(-2.0, 2.0, coast);
+    float camD = length(p.xz - uCameraPos.xz);
+    float amp = uSea.x * damp * (1.0 - smoothstep(2500.0, 5000.0, camD));
+    vec2 sn = uFftOn > 0.5 ? hbShoreNormal(uSdf, suv, coast, inside) : vec2(0.0);
+    p.y += hbOceanDisp(p.xz, uTime, amp, damp, camD, depth, coast, sn).y;
+  }
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }`;
 
@@ -105,17 +127,39 @@ export class RouteLine {
   private drawT = 0;
   private k = 0;
 
+  private fallbackFft: THREE.DataArrayTexture | null = null;
+  private fallbackSdf: THREE.DataTexture | null = null;
+
   constructor(private readonly ctx: EngineContext, private readonly read: (id: string) => Itinerary | null) {
+    const oc = ctx.services?.get("ocean")?.shared;
+    if (!oc) {
+      const fd = new Uint8Array(6 * 4);
+      for (let i = 0; i < 3; i++) fd[i * 4 + 3] = 255;
+      this.fallbackFft = Object.assign(new THREE.DataArrayTexture(fd, 1, 1, 6), { needsUpdate: true });
+      this.fallbackSdf = Object.assign(new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1), { needsUpdate: true });
+    }
     this.mat = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG,
       uniforms: {
         uColor: { value: new THREE.Color(0.72, 0.5, 0.18) }, uDraw: { value: 0 }, uBoatS: { value: 0 },
         uK: { value: 0 }, uDash: { value: DASH_M }, uWidth: { value: 0.6 },
+        uOceanOn: { value: oc ? 1 : 0 },
+        uTime: oc?.uTime ?? { value: 0 },
+        uCameraPos: ctx.uniforms?.uCameraPos ?? { value: new THREE.Vector3() },
+        uSea: oc?.uSea ?? { value: new THREE.Vector4() },
+        uSdfBounds: oc?.uSdfBounds ?? { value: new THREE.Vector4(-1, -1, 1, 1) },
+        uSdf: oc?.uSdf ?? { value: this.fallbackSdf },
+        uSceneCenter: oc?.uSceneCenter ?? { value: new THREE.Vector2() },
+        uFftAtlas: { value: null },
+        uFftOn: oc?.uFftOn ?? { value: 0 },
+        uFftScales: oc?.uFftScales ?? { value: new THREE.Vector4(1 / 509, 1 / 97, 1 / 17.3, 0.55) },
+        uFftWeights: oc?.uFftWeights ?? { value: new THREE.Vector4(1, 1, 1, 1) },
       },
       transparent: true, depthWrite: false, depthTest: true, fog: false,
       blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
       blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
+    this.mat.uniforms.uFftAtlas = oc?.uFftAtlas ?? { value: this.fallbackFft };
   }
 
   /** Show a boat's rounds (null hides). */
@@ -229,5 +273,5 @@ export class RouteLine {
     this.mesh = null;
   }
 
-  dispose(): void { this.disposeMesh(); this.mat.dispose(); }
+  dispose(): void { this.disposeMesh(); this.mat.dispose(); this.fallbackFft?.dispose(); this.fallbackSdf?.dispose(); }
 }

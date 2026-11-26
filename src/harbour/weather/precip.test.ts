@@ -1,8 +1,12 @@
 import * as THREE from "three";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getBeamUniforms } from "../beam/uniforms";
 import { Lightning } from "./lightning";
 import { FAR_FLOOR, FAR_STREAK, farDepthAlpha, farStreakShare, PRECIP_BUDGET, Precipitation } from "./precip";
+import { WeatherSystem } from "./weather-system";
+import * as oceanTextures from "../ocean/textures";
+import type { EngineContext } from "../engine/types";
+import { createWorldUniforms } from "../engine/uniforms";
 
 describe("E25 precipitation depth", () => {
   it("fades far drops monotonically toward a floor and shortens their streaks (the near drops untouched)", () => {
@@ -106,6 +110,58 @@ describe("atmospheric rain, splashes and storm lightning", () => {
     expect(fallMat.uniforms.uRainAlpha.value).toBeGreaterThan(0.45);
     expect(groundMat.uniforms.uSplashAlpha.value).toBeLessThan(0.75);
     p.dispose();
+  });
+
+  it("binds ocean shared wave uniforms lazily when WeatherSystem initializes before OceanSystem (systems.ts order)", async () => {
+    vi.stubGlobal("location", { search: "", hash: "" });
+    const tex = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    const fftTex = new THREE.DataArrayTexture(new Uint8Array(24), 1, 1, 6);
+    vi.spyOn(oceanTextures, "acquireFxTextures").mockResolvedValue({ noise: tex, ripple: tex, release() {} });
+    const services = new Map<string, unknown>();
+    const ctx = {
+      scene: new THREE.Scene(),
+      camera: new THREE.PerspectiveCamera(30, 1.6, 1, 5000),
+      rig: { distance: 650, target: new THREE.Vector3() },
+      renderer: { domElement: { clientWidth: 1600, clientHeight: 1000 } },
+      uniforms: createWorldUniforms(),
+      timeOfDay: { hour: 12 },
+      services,
+    } as unknown as EngineContext;
+    const weather = new WeatherSystem();
+    try {
+      await weather.init(ctx);
+
+      const groundMesh = ctx.scene.getObjectByName("weather-ground") as THREE.Mesh;
+      const groundMat = groundMesh.material as THREE.ShaderMaterial;
+      // Ocean has not initialized yet -> starts at 0
+      expect(groundMat.uniforms.uOceanOn.value).toBe(0);
+
+      // Ocean initializes later (systems.ts order) and registers its shared uniforms
+      const shared = {
+        uTime: { value: 4.5 },
+        uSea: { value: new THREE.Vector4(0.5, 0.7, 0.5, 1) },
+        uSdf: { value: tex },
+        uSdfBounds: { value: new THREE.Vector4(-500, -500, 500, 500) },
+        uSceneCenter: { value: new THREE.Vector2(10, -20) },
+        uFftAtlas: { value: fftTex },
+        uFftOn: { value: 1 },
+        uFftScales: { value: new THREE.Vector4(1 / 509, 1 / 97, 1 / 17.3, 0.55) },
+        uFftWeights: { value: new THREE.Vector4(1, 1, 1, 1) },
+      };
+      services.set("ocean", { shared, coastAt: () => 200, setSeaState: () => {} });
+
+      weather.update({ elapsed: 1, delta: 0.016, nowMs: 1000 }, ctx);
+      expect(groundMat.uniforms.uOceanOn.value).toBe(1);
+      expect(groundMat.uniforms.uFftAtlas).toBe(shared.uFftAtlas);
+      expect(groundMat.uniforms.uSdf).toBe(shared.uSdf);
+      expect(groundMat.uniforms.uSceneCenter).toBe(shared.uSceneCenter);
+    } finally {
+      weather.dispose(ctx);
+      tex.dispose();
+      fftTex.dispose();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("illuminates the cloud-emergence corona and lingers cloud-interior flash afterglow safely", () => {

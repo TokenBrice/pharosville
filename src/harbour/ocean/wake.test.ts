@@ -3,7 +3,13 @@ import { resolve } from "node:path";
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { OCEAN_FRAG } from "./ocean-material";
-import { WakeField, type WakeService } from "./wake";
+import {
+  WAKE_DECAY_RGBA_FRAG,
+  WAKE_STATIONARY_FRAG,
+  WakeField,
+  type WakeMode,
+  type WakeService,
+} from "./wake";
 import { FullscreenPass } from "./gpu-bake";
 
 /**
@@ -250,4 +256,179 @@ it("clears both history buffers and queued stamps at a resume boundary, restorin
   expect(clearColor.getHex()).toBe(0x112233); expect(clearAlpha).toBe(0.7);
   expect((field as unknown as { count: number }).count).toBe(0);
   field.dispose();
+});
+
+describe("Phase 2 WS-B WakeField v2 (RGBA16F persistent Jacobian foam + stationary channels)", () => {
+  const internals = (wake: WakeField) => wake as unknown as {
+    hist: THREE.WebGLRenderTarget[];
+    liveRT: THREE.WebGLRenderTarget | null;
+    liveFallback: THREE.DataTexture;
+    rgbaCompileRT: THREE.WebGLRenderTarget;
+    liveCompileRT: THREE.WebGLRenderTarget;
+    decayRgba: FullscreenPass;
+    copy: FullscreenPass;
+    stationaryMat: THREE.ShaderMaterial;
+    trailMat: THREE.ShaderMaterial;
+    mesh: THREE.Mesh;
+  };
+
+  function makeMockRenderer() {
+    let target: THREE.WebGLRenderTarget | null = null;
+    let clearColor = new THREE.Color(0x112233);
+    let clearAlpha = 0.5;
+    return {
+      autoClear: true,
+      getRenderTarget: () => target,
+      setRenderTarget: vi.fn((t: THREE.WebGLRenderTarget | null) => { target = t; }),
+      getClearAlpha: () => clearAlpha,
+      getClearColor: (out: THREE.Color) => out.copy(clearColor),
+      setClearColor: vi.fn((v: number | THREE.Color, a = 1) => { clearColor = new THREE.Color(v); clearAlpha = a; }),
+      clear: vi.fn(),
+      render: vi.fn(),
+    };
+  }
+
+  it("allocates RGBA16F ping-pong history, drops liveRT to 1×1 zero fallback, and names profiler materials", () => {
+    const mode: WakeMode = "rgba16f";
+    const wake = new WakeField([-500, -500, 500, 500], 1024, 1024, mode);
+    const state = internals(wake);
+    expect(wake.wakeMode).toBe("rgba16f");
+    expect(state.liveRT).toBeNull();
+    expect(wake.live).toBe(state.liveFallback);
+    expect(wake.live).toBeInstanceOf(THREE.DataTexture);
+    expect(state.hist.map((rt) => [rt.width, rt.height, rt.texture.format, rt.texture.type])).toEqual([
+      [1024, 1024, THREE.RGBAFormat, THREE.HalfFloatType],
+      [1024, 1024, THREE.RGBAFormat, THREE.HalfFloatType],
+    ]);
+    expect(state.decayRgba.material.name).toBe("hb_wake_decay_rgba");
+    expect(state.stationaryMat.name).toBe("hb_wake_stationary");
+    expect(state.stationaryMat.blending).toBe(THREE.CustomBlending);
+    expect(state.stationaryMat.blendEquation).toBe(THREE.MaxEquation);
+    expect(state.stationaryMat.blendEquationAlpha).toBe(THREE.MaxEquation);
+    expect(state.trailMat.fragmentShader).toContain("uDt * 0.85, 0.0, 0.0, 0.0);");
+    expect(WAKE_DECAY_RGBA_FRAG).toContain("uniform highp sampler2DArray uFftAtlas;");
+    expect(WAKE_DECAY_RGBA_FRAG).toContain("1.0 - smoothstep(foldLo, foldHi, jMin)");
+    expect(WAKE_STATIONARY_FRAG).toContain("gl_FragColor = vec4(0.0, contactFoam, slick, hullOcc);");
+
+    // Preparation entries resolve cleanly to valid targets in RGBA16F mode (liveCompileRT for inactive liveMat)
+    const entries = wake.preparationEntries();
+    expect(entries).toHaveLength(7);
+    expect(entries[1].target()).toBe(state.liveCompileRT);
+    expect(entries[5].target()).toBe(state.hist[1]);
+    expect(entries[6].target()).toBe(state.hist[1]);
+    wake.dispose();
+  });
+
+  it("switches cleanly between r16f and rgba16f via setMode with zero A=1 flash and atomic rebind/disposal", () => {
+    const wake = new WakeField([-200, -200, 200, 200], 512, 512, "r16f");
+    const state = internals(wake);
+    const masks: number[][] = [];
+    const targets: THREE.WebGLRenderTarget[] = [];
+    const blit = vi.spyOn(state.copy, "render").mockImplementation((_r, target) => {
+      masks.push((state.copy.material.uniforms.uMask.value as THREE.Vector4).toArray());
+      targets.push(target!);
+    });
+    const renderer = {} as THREE.WebGLRenderer;
+
+    // r16f -> rgba16f: copies 2 hist targets with mask (1,0,0,0), disposes old hist + liveRT AFTER rebind
+    const oldR16f = [...state.hist, state.liveRT!];
+    let rebound = false, disposed = 0;
+    for (const rt of oldR16f) rt.addEventListener("dispose", () => { expect(rebound).toBe(true); disposed++; });
+    const rebindUp = vi.fn(() => {
+      rebound = true;
+      expect(disposed).toBe(0);
+      expect(wake.wakeMode).toBe("rgba16f");
+      expect(state.liveRT).toBeNull();
+      expect(wake.live).toBe(state.liveFallback);
+      expect(wake.texture.format).toBe(THREE.RGBAFormat);
+    });
+    wake.setMode(renderer, "rgba16f", 2048, rebindUp);
+    expect(rebindUp).toHaveBeenCalledOnce();
+    expect(disposed).toBe(3);
+    expect(masks).toEqual([[1, 0, 0, 0], [1, 0, 0, 0]]);
+    expect(targets.map((rt) => [rt.width, rt.texture.format])).toEqual([
+      [2048, THREE.RGBAFormat],
+      [2048, THREE.RGBAFormat],
+    ]);
+
+    // Resize inside rgba16f copies only 2 hist targets (liveRT stays null)
+    masks.length = 0; targets.length = 0;
+    const oldRgba = [...state.hist];
+    let rgbaDisposed = 0;
+    for (const rt of oldRgba) rt.addEventListener("dispose", () => { rgbaDisposed++; });
+    wake.resize(renderer, 1024, vi.fn());
+    expect(rgbaDisposed).toBe(2);
+    expect(masks).toEqual([[1, 1, 1, 1], [1, 1, 1, 1]]);
+    expect(state.liveRT).toBeNull();
+
+    // rgba16f -> r16f: recreates liveRT (cleared via uMask 0,0,0,0) and restores R16F hist
+    masks.length = 0; targets.length = 0;
+    wake.setMode(renderer, "r16f", 1024, vi.fn());
+    expect(wake.wakeMode).toBe("r16f");
+    expect(state.liveRT).not.toBeNull();
+    expect(wake.live).toBe(state.liveRT!.texture);
+    expect(masks).toEqual([[1, 1, 1, 1], [1, 1, 1, 1], [0, 0, 0, 0]]);
+    expect(targets.map((rt) => rt.texture.format)).toEqual([THREE.RedFormat, THREE.RedFormat, THREE.RGBAFormat]);
+
+    blit.mockRestore();
+    wake.dispose();
+  });
+
+  it("runs RGBA16F decay with FFT Jacobian params, downwind advection, and stationary stamping without touching liveRT", () => {
+    const wake = new WakeField([-500, -500, 500, 500], 1024, 1024, "rgba16f");
+    const state = internals(wake);
+    const atlas = new THREE.DataArrayTexture(new Uint8Array(6 * 4), 1, 1, 6);
+    const scales = new THREE.Vector4(1 / 509, 1 / 97, 1 / 17.3, 0);
+    const sdf = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+    wake.bindFft(atlas, scales, 1, 0.55, 0.8);
+    wake.bindSdf(sdf, [-500, -500, 500, 500]);
+    wake.lee.set(1, 0);
+
+    const decaySpy = vi.spyOn(state.decayRgba, "render").mockImplementation(() => {});
+    const r = makeMockRenderer();
+    const prev = new THREE.WebGLRenderTarget(16, 16);
+    r.setRenderTarget(prev);
+    r.setRenderTarget.mockClear();
+
+    const matsDrawn: THREE.Material[] = [];
+    r.render.mockImplementation(() => { matsDrawn.push(state.mesh.material as THREE.Material); });
+
+    // Frame 1: no decay yet, draws trailMat + stationaryMat into hist[0]
+    wake.stamp(10, 20, 3, 0, 2, 1, 6, 1.1);
+    wake.stamp(30, 40, 0, 0, 2, 1.35, 6, 2.2, 0.5);
+    wake.update(r as unknown as THREE.WebGLRenderer, 0.016);
+    expect(decaySpy).not.toHaveBeenCalled();
+    expect(r.clear).not.toHaveBeenCalled();
+    expect(matsDrawn).toEqual([state.trailMat, state.stationaryMat]);
+    expect(r.getRenderTarget()).toBe(prev);
+
+    // Frame 2: runs decayRgba with storm-scaled tauFoam (2.8 + 2.0 * 0.8 = 4.4 s) and downwind advection
+    matsDrawn.length = 0;
+    wake.stamp(30, 40, 0, 0, 2, 0.9, 6, 2.2);
+    wake.update(r as unknown as THREE.WebGLRenderer, 0.016);
+    expect(decaySpy).toHaveBeenCalledOnce();
+    const u = state.decayRgba.material.uniforms;
+    expect(u.uFftAtlas.value).toBe(atlas);
+    expect((u.uFftScales.value as THREE.Vector4).toArray()).toEqual(scales.toArray());
+    expect((u.uFftParams.value as THREE.Vector4).toArray()).toEqual([1, 0.55, 0.8, 0]);
+    expect(u.uSdfOn.value).toBe(1);
+    expect(u.uDecayFoam.value).toBeCloseTo(Math.exp(-0.032 / 4.4), 6);
+    expect(u.uDecaySlick.value).toBeCloseTo(Math.exp(-0.032 / 0.35), 6);
+    expect(u.uDecayOcc.value).toBeCloseTo(Math.exp(-0.032 / 0.25), 6);
+    expect((u.uAdvect.value as THREE.Vector2).x).toBeGreaterThan(0);
+    expect((u.uAdvect.value as THREE.Vector2).y).toBeCloseTo(0, 8);
+    expect(matsDrawn).toEqual([state.trailMat, state.stationaryMat]);
+
+    // Clear in RGBA16F mode clears only the 2 hist targets and restores state
+    r.clear.mockClear();
+    wake.clear(r as unknown as THREE.WebGLRenderer);
+    expect(r.clear).toHaveBeenCalledTimes(2);
+    expect(r.getRenderTarget()).toBe(prev);
+
+    decaySpy.mockRestore();
+    prev.dispose();
+    atlas.dispose();
+    sdf.dispose();
+    wake.dispose();
+  });
 });

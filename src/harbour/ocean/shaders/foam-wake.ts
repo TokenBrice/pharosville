@@ -1,23 +1,10 @@
 /**
- * Foam, wakes, caps and surf. (Notes here: shader text ships in the first-frame bytes.)
- * Swell trains that arrive (03-O3): coast-parallel crest lines travel shoreward, bunching and slowing as the water
- * shoals (wavenumber rises with falling depth), steepening into a thin foam lip that breaks near the contact line.
- * Scaled by the declared sea state's foam bands (uSea.w) exactly like the old in-place bands; the sea clock stills them.
- * E14: the coast trains, the swash
- * and the reef surf run on the main swell's phase (waves.ts hbSwellPhase) plus fixed per-stretch offsets, in step with
- * the hulls' bob and the run-up on stone; the reef's lines sharpen (pow 10 -> 16) on that longer 62 m spacing. E12: only
- * the strongest Kelvin crests whiten (threshold .3, gain .6), the rest of an arm is lighter, rougher water; where a crest
- * is a pixel (fp) the white fades.
+ * Foam, wakes, persistent downwind-advected FFT Jacobian whitecaps, curved wake ribbons, and breaking Shoals surf.
+ * Strictly B07/C04 compliant (ascending `smoothstep` edges only, squaring by multiplication).
  */
-export const OCEAN_FOAM = /* glsl */ `  // ---------------------------------------------------------------- foam
-  float bands = uSea.w;
-  // sheltered inner-harbour stone quays (zm.b) stay calm and crystal-clear instead of chalk-outlined;
-  // exposed rocky cliffs, Wreck Cove beach and The Shoals keep lacy breaking surf
+export const OCEAN_FOAM = /* glsl */ `  float bands = uSea.w;
   float shelter = zm.b * (1.0 - stormSea);
   float exposed = 1.0 - shelter;
-  // lace: delicate drifting cellular bubble web (shared by breaking surf, swash, eddies and aging wakes)
-  // (beyond the heart view the lace melts into its mean coverage: skip its taps; explicit gradients keep the
-  // conditional reads safe)
   float laceFar = smoothstep(260.0, 760.0, camD);
   float lA = 0.5, lB = 0.5;
   if (laceFar < 1.0) {
@@ -27,26 +14,20 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   float lace = mix(hbNet(lA, lB, 0.05), 0.3, laceFar);
   float bubbleHoles = smoothstep(0.28, 0.74, mix(nC.g * 0.62 + nB.a * 0.50, 0.52, laceFar));
   float foamWeb = clamp(max(lace * 0.95, bubbleHoles * (1.0 - 0.55 * smoothstep(0.55, 0.82, nC.r))), 0.0, 1.0);
-  // a rough sea keeps its full surf, swash and spindrift: the lace breaks up calm-water foam only
   float roughFoam = stormSea;
   foamWeb = mix(foamWeb, 1.0, roughFoam);
   bubbleHoles = mix(bubbleHoles, 1.0, roughFoam);
   float dnC = coast + (nB.r - 0.5) * 2.4 + (nC.g - 0.5) * 0.8;
-  // §6.1.5 windward-exposure surf modulation from SDF mip-2 shoreline normal
   float expSurf = mix(1.0, shoreExp, 1.0 - smoothstep(14.0, 28.0, coast));
-  // exposed shoreline contact: lacy broken surf edge (never a solid chalk ribbon)
   float fContactExp = (1.0 - smoothstep(0.18, 1.05, dnC)) * (0.42 + 0.58 * foamWeb) * clamp(expSurf, 0.55, 1.2);
-  // sheltered stone quays: whisper-thin, broken organic meniscus clinging right at the wet stone edge
   float fContactCalm = (1.0 - smoothstep(0.02, 0.48, coast + (nC.g - 0.5) * 0.32)) * smoothstep(0.45, 0.82, foamWeb + 0.15 * nC.b) * (0.16 + 0.22 * uSea.y);
   float fContact = mix(fContactExp, fContactCalm, shelter);
-  // swell trains that arrive (03-O3, see above): strong on exposed coasts/beaches, nearly quiet in sheltered basins
   float shoalW = mix(0.62, 1.25, 1.0 - smoothstep(1.0, 9.0, depth));
   float trainPh = dnC * shoalW - hbSwellPhase(xz, t) + nA.b * 5.0 + nA.a * 0.8;
   float crestL = pow(0.5 + 0.5 * cos(trainPh), mix(10.0, 22.0, smoothstep(2.0, 8.0, dnC)));
   float trainK = (1.0 - smoothstep(5.0, 9.5, dnC)) * smoothstep(0.7, 1.6, dnC) * (0.45 + 0.55 * (1.0 - smoothstep(1.5, 7.0, dnC)));
   float band2 = crestL * trainK * smoothstep(0.36, 0.62, nB.g + 0.12 * nC.r) * (0.48 + 0.52 * foamWeb) * mix(0.08, 1.0, exposed) * expSurf;
   float coastFoam = max(fContact, band2 * 0.9 * bands) * step(-1.0, coast);
-  // swash: lacy foam sheet running in with each swell crest on beaches & outer coasts, tearing open as it drains
   {
     float swPh = hbSwellPhase(xz, t) + nA.b * 2.2 + nA.a * 1.2;
     float sw = 0.5 + 0.5 * sin(swPh);
@@ -61,50 +42,46 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   }
   float sdN = sdist + (nC.g - 0.5) * 0.6;
   float fStruct = (1.0 - smoothstep(0.0, 0.28, sdN)) * 0.26 * smoothstep(0.38, 0.65, nC.g + 0.2) + (1.0 - smoothstep(0.08, 0.22, abs(sdN - 1.1))) * smoothstep(0.64, 0.78, nC.b) * 0.22;
-  // foam lingering in the eddies behind piles and quay corners: slow-turning scum and lace, not a ring
   {
     vec2 sw2 = vec2(sin(t * 0.05 + nA.g * 6.2831), cos(t * 0.041 + nA.b * 6.2831)) * 0.05;
     float scum = smoothstep(0.60, 0.82, texture2D(uNoise, xz * 0.09 + sw2).g * 0.8 + nC.a * 0.35);
     float eddyK = (1.0 - smoothstep(0.5, 3.2, sdN)) * smoothstep(0.0, 0.25, sdN);
-    // (open water off the coast: a mooring buoy keeps a thin contact ring, not a cotton-wool blotch of eddy scum)
     fStruct = max(fStruct, max(scum * 0.45, lace * 0.42) * eddyK * (1.0 - 0.92 * smoothstep(18.0, 50.0, coast)));
   }
-  // calm water keeps only a faint broken meniscus round piles, buoys and quays; foam builds with sea state and rain
   fStruct *= mix(0.24, 1.0, max(storm, uPrecip.x)) * mix(1.0, 0.55, shelter);
-  // broken, translucent foam: noise eats the wake so it reads as lines of bubbles, not ribbons
   float fTrail = smoothstep(0.14, 0.68, trail * (0.35 + 1.15 * nC.g * nB.b * 1.4)) * (0.48 + 0.42 * smoothstep(0.25, 0.85, trail));
-  // as a wake ages it breaks into lace threads and drifting patches before it is gone
   fTrail = max(fTrail, lace * smoothstep(0.06, 0.3, trail) * (1.0 - smoothstep(0.55, 0.95, trail)) * (0.35 + 0.4 * nB.g) * (1.0 - laceFar * 0.6));
   float fKel = smoothstep(0.16, 0.52, live.r * (0.55 + 0.9 * nC.r)) * 0.75 * (1.0 - 0.45 * smoothstep(1.0, 2.5, fp));
-  float fRing = smoothstep(0.3, 0.75, live.g * (0.35 + 1.0 * nC.b)) * 0.5;
+  float fRing = smoothstep(0.3, 0.75, live.g * (0.35 + 1.0 * nC.b)) * 0.52;
   fRing *= mix(1.0, 0.72 + 0.38 * foamWeb, smoothstep(0.18, 0.55, zm.r));
   fRing *= 1.0 - smoothstep(0.45, 0.9, length(fwidth(xz)));
   float caps = smoothstep(0.82 - 0.1 * storm, 0.97, crestH * 0.55 + nB.a * 0.55 + nC.r * 0.12) * uSea.z * smoothstep(25.0, 90.0, coast);
-  // scattered whitecap flecks riding the crests across the whole bay once the declared sea is choppy
-  // (uSea.z > 0: off-peg step 2+), so a rough sea reads at the heart view, not only in patches (readings)
+  #ifndef HB_LITE
+  if (uFftOn > 0.5) {
+    float instBreak = (1.0 - smoothstep(0.08, 0.48, fftJMin)) * smoothstep(0.18, 0.85, max(uSea.z, stormSea)) * smoothstep(12.0, 48.0, coast);
+    float persistJac = smoothstep(0.12, 0.72, jacFoam * (0.55 + 0.65 * foamWeb)) * smoothstep(8.0, 36.0, coast) * max(uSea.z * 0.85, stormSea);
+    caps = max(caps, max(instBreak * (0.55 + 0.45 * foamWeb), persistJac * 0.78));
+  }
+  #endif
   if (uSea.z > 0.01) {
     float fl = texture2D(uNoise, xz * 0.029 + wdir * t * 0.006).a * 0.55 + nC.r * 0.4 + crestH * 0.4;
     caps = max(caps, smoothstep(0.82 - 0.05 * uSea.z, 0.93, fl) * smoothstep(0.0, 0.6, uSea.z) * (1.0 - far01 * 0.5) * smoothstep(25.0, 90.0, coast));
   }
-  // §6.1.4 meandering wind-driven Langmuir spindrift streaks with uRipple.b cellular foam (zero ruler scratches)
   float laneK = max(smoothstep(0.35, 1.0, storm), windSea * 0.85);
   if (laneK > 0.0) {
     vec2 wl = vec2(dot(xz, wdir), dot(xz, vec2(-wdir.y, wdir.x)));
     float meander = (nA.g - 0.5) * 26.0 + (nB.r - 0.5) * 7.5 + sin(wl.x * 0.022 + nA.b * 6.2831) * 4.5;
     float wy = wl.y + meander;
     float lane = texture2D(uNoise, vec2(wl.x * 0.0042 - t * 0.0045, wy * 0.036)).g * 0.68 + texture2D(uNoise, vec2(wl.x * 0.012 - t * 0.007, wy * 0.095) + 0.41).b * 0.44;
-    float cellFoam = mix(0.42, 1.0, smoothstep(0.18, 0.78, r1.b * 0.65 + r2.b * 0.55));
+    float cellFoam = mix(0.42, 1.0, smoothstep(0.18, 0.78, ripCell));
     float streaks = smoothstep(0.68, 0.88, lane) * laneK * smoothstep(18.0, 65.0, coast) * (0.35 + 0.65 * nC.r) * cellFoam;
     caps = max(caps, streaks * 0.72);
   }
-  // wind-raised whitecaps (DEWS Warning / Danger), sparse, riding the crests, more in the open Roads
   if (windSea > 0.01) {
     float wf = texture2D(uNoise, xz * 0.041 - wdir * t * 0.02).a * 0.5 + nC.r * 0.45 + crestH * 0.45 + 0.08 * zm.a;
     caps = max(caps, smoothstep(0.86 - 0.08 * windSea, 0.95, wf) * windSea * (1.0 - far01 * 0.5) * smoothstep(15.0, 60.0, coast) * (1.0 - 0.6 * zm.b));
   }
-  // snowflakes melt the instant they land: a white speck that is gone
   caps = max(caps, snowSpeck * 0.8);
-  // the Shoals: delicate lacy surf breaking across the shallow limestone reef, wrapping around outcrops (§6.1.5)
   {
     float sPh = hbSwellPhase(xz, t) + (nA.b - 0.5) * 5.0;
     float wrapK = (1.0 - smoothstep(2.0, 26.0, max(coast, 0.0))) * smoothstep(0.15, 0.65, zm.r);
@@ -118,7 +95,6 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   foam *= 1.0 - smoothstep(uHorizonDist * 0.86, uHorizonDist * 0.99, fwdD);
   float ndl = max(dot(N, uSunDir), 0.0);
   vec3 foamLit = mix(uFoamCol, uFoamNight, uNight * 0.6) * (uAmbient * 1.1 + uSunColor * (0.25 + 0.75 * ndl) * 0.3183 * mix(1.0, sunSh, 0.8));
-  // overview: the coast foam stays under the bloom threshold (no glowing outline round the island, 01-A6)
   foamLit *= 1.0 - 0.38 * smoothstep(310.0, 500.0, uCameraPos.y) * (1.0 - uNight);
 
   {
@@ -128,15 +104,13 @@ export const OCEAN_FOAM = /* glsl */ `  // -------------------------------------
   }
   float cShade = hbCloudShadow(xz);
   col *= mix(1.0, cShade, 0.55 * (1.0 - 0.85 * uNight));
-  col += glint * overcast * (1.0 - foam) * cShade;
+  col += glint * overcast * (1.0 - foam) * cShade * (1.0 - 0.72 * mirrorCov);
   col += beam * (1.0 - foam * 0.5);
-  // thin aerated foam fringes tint toward translucent turquoise-jade (or dark bottle-jade aprons in storms) before thick crests turn white
   float wakeWhite = max(fKel, fTrail * 0.85);
   float foamWhite = max(mix(smoothstep(0.14, 0.82, foam), smoothstep(0.16, 0.62, foam), roughFoam), smoothstep(0.12, 0.55, wakeWhite));
   vec3 apronTint = mix(uSunlitShoal * 0.16 * mix(1.0, 0.25, uNight) * (1.0 - cover * 0.5), vec3(0.05, 0.19, 0.17) * mix(1.0, 0.25, uNight), roughFoam);
   vec3 foamEdge = mix(col + apronTint, foamLit, foamWhite);
   col = mix(col, foamEdge, max(mix(smoothstep(0.03, 0.92, foam), smoothstep(0.02, 0.78, foam), roughFoam), smoothstep(0.04, 0.65, wakeWhite)));
-  // summer nights: the churned water of wakes, contact rings and the swash glows faintly (decorative, sea-tone.ts)
   col += hbBiolum(trail * 0.9 + live.r * 1.4 + live.g * 0.7 + max(coastFoam - fContact * 0.6, 0.0) * step(dnC, 7.0), zm.r, t, nC.a);
 
 `;

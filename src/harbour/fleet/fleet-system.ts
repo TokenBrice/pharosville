@@ -36,8 +36,9 @@ import { ensureMotionService, MotionClock } from "../ui/services";
 import { fleetShadowFrustum, rigRadius } from "./visibility";
 import { castFadeUniforms, contactShare } from "../world/shadow-casters";
 import { lampGlow, lampJitter, lampRank, lampWaveUniforms } from "../lights/lamp-wave";
-import type { DynPoolService, WakeCollarService } from "../engine/services";
+import type { DynPoolService, WakeCollarService, WakeRibbonService } from "../engine/services";
 import type { WakeService } from "../ocean/wake";
+import { enableReflectLayer } from "../ocean/reflect-layer";
 
 /**
  * FleetSystem: every stablecoin's hull, in ONE BatchedMesh multi-draw (+ its shadow pass), consuming
@@ -457,6 +458,7 @@ export class FleetSystem implements WorldSystem {
     // posed, so that sphere culled the whole fleet from every close view that does not see the origin
     mesh.frustumCulled = false;
     mesh.sortObjects = false;
+    enableReflectLayer(mesh);
     for (const [id, g] of geos) this.geomIds.set(id, mesh.addGeometry(g));
     this.mesh = mesh;
     this.ensureData(maxInstances);
@@ -755,7 +757,7 @@ export class FleetSystem implements WorldSystem {
   readonly tugSeen = { count: 0, x: new Float32Array(MAX_TUGS), z: new Float32Array(MAX_TUGS) };
 
   /** Pose the live tugs (sim.tugs), their towlines, and their wakes / collars. */
-  private poseTugs(sim: HarbourSim | undefined, time: number, dt: number, wake: WakeService | undefined, wakeCollars: WakeCollarService | undefined): void {
+  private poseTugs(sim: HarbourSim | undefined, time: number, dt: number, wake: WakeService | undefined, wakeCollars: WakeCollarService | undefined, wakeRibbons?: WakeRibbonService, focusX = 0, focusZ = 0): void {
     const v = this.kit?.hulls.get(TUG_KIT), T = sim?.tugs, mesh = this.mesh!;
     const n = v && T ? Math.min(T.count, this.tugInst.length) : 0;
     this.tugSeen.count = n;
@@ -778,6 +780,9 @@ export class FleetSystem implements WorldSystem {
       if (wake) {
         if (spd > 0.15) wake.stamp(x, z, fx * spd, fz * spd, tugBeam * 0.5, 0.9, TUG_LOA * 0.5, k * 1.7 + 0.5);
         else wake.stamp(x, z, fx * 0.002, fz * 0.002, tugBeam * 0.5, 0.4, TUG_LOA * 0.5, k * 1.7 + 0.5);
+      }
+      if (wakeRibbons && spd > 0.25) {
+        wakeRibbons.pushMoving(inst, x, z, fx * spd, fz * spd, tugBeam * 0.5, TUG_LOA * 0.5, 0.9, focusX, focusZ);
       }
       wakeCollars?.push(x, z, fx, fz, TUG_LOA, tugBeam, spd, 0, 0);
       // she pulls: a slow surge and roll at the oars' rhythm
@@ -1168,7 +1173,9 @@ export class FleetSystem implements WorldSystem {
     this.ocean = ctx.services.get("ocean") ?? null;
     const wake = ctx.services.get("wake");
     const wakeCollars = ctx.services.get("wakeCollars");
+    const wakeRibbons = ctx.services.get("wakeRibbons");
     const dynPool: DynPoolService | undefined = ctx.services.get("dynPool");
+    const mirrorFrustum = this.ocean?.mirrorFrustum?.() ?? null;
     const revision = sim?.resumeRevision ?? 0;
     const reconciled = revision !== this.resumeRevision;
     if (reconciled) {
@@ -1290,6 +1297,7 @@ export class FleetSystem implements WorldSystem {
       const poseHull = this.needsFullPose || b.wrecked || pose!.position[i * 3 + 1] > 0.5
         || b.id === this.selected || b.id === this.hover || b.hi > 0.05 || this.debug !== null
         || this.frustum.intersectsSphere(this.sphere)
+        || (mirrorFrustum !== null && mirrorFrustum.intersectsSphere(this.sphere))
         || (mesh.castShadow && (!shadowFrustum || shadowFrustum.intersectsSphere(this.sphere)));
 
       // swell: bob, pitch, roll from the sea surface under the hull (big hulls average more)
@@ -1524,7 +1532,11 @@ export class FleetSystem implements WorldSystem {
         if (wake) {
           // the launch's splash: a burst of foam round her as she takes the water (07-M12)
           if (pose!.pitch[i] > 0.04) wake.stamp(x, z, fx * 0.002, fz * 0.002, hb * 2.2, 2, b.loa * 0.8, b.phi);
-          if (moving && Math.abs(fwd) > 0.15) { wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5, b.phi); st.moving++; }
+          if (moving && Math.abs(fwd) > 0.15) {
+            wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5, b.phi);
+            wakeRibbons?.pushMoving(b.inst, x, z, fx * fwd, fz * fwd, hb, b.loa * 0.5, 1, ctx.rig?.target?.x ?? 0, ctx.rig?.target?.z ?? 0);
+            st.moving++;
+          }
           else if (ph === PH_ANCHORED && !b.reserve) {
             // aground on the Shoals (07-M7): swell-pulsing reef-surf collar clearing the hull silhouette (strength strictly > 1.0)
             const surge = 0.5 + 0.5 * Math.sin(time * 1.4 + b.phi);
@@ -1560,7 +1572,7 @@ export class FleetSystem implements WorldSystem {
 
     this.mastSignals?.end();
     this.bunting?.end();
-    this.poseTugs(sim, time, dt, wake, wakeCollars);
+    this.poseTugs(sim, time, dt, wake, wakeCollars, wakeRibbons, ctx.rig?.target?.x ?? 0, ctx.rig?.target?.z ?? 0);
 
     // hulks lie still on the dry strand (set once: they never move)
     if (!this.wrecksPosed) {

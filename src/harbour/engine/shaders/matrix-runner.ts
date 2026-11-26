@@ -27,9 +27,12 @@ export function runShaderMatrix(): { rows: ShaderVerdict[]; renderer: string } {
   const gl = renderer.getContext(), debug = gl.getExtension("WEBGL_debug_renderer_info");
   const identity = debug ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : "unknown";
   const target = new THREE.WebGLRenderTarget(1, 1);
+  const mrtTarget = new THREE.WebGLRenderTarget(1, 1, { count: 2, type: THREE.HalfFloatType, depthBuffer: false });
   const tex2 = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1);
   const tex3 = new THREE.Data3DTexture(new Uint8Array([128, 128, 128, 255]), 1, 1, 1);
-  tex3.format = THREE.RGBAFormat; tex2.needsUpdate = tex3.needsUpdate = true;
+  const texArr = new THREE.DataArrayTexture(new Uint8Array(6 * 4).fill(128), 1, 1, 6);
+  tex3.format = THREE.RGBAFormat; texArr.format = THREE.RGBAFormat;
+  tex2.needsUpdate = tex3.needsUpdate = texArr.needsUpdate = true;
   const rows: ShaderVerdict[] = [];
   let current: ShaderVerdict | undefined;
   const compile = gl.compileShader.bind(gl), link = gl.linkProgram.bind(gl);
@@ -49,6 +52,7 @@ export function runShaderMatrix(): { rows: ShaderVerdict[]; renderer: string } {
     current?.logs.push(`THREE shader error\n${gl.getProgramInfoLog(program)}\n${gl.getShaderInfoLog(vertex)}\n${gl.getShaderInfoLog(fragment)}\n${gl.getShaderSource(vertex)}\n${gl.getShaderSource(fragment)}`);
   };
   const uniformValue = (type: string): unknown => {
+    if (type === "sampler2DArray") return texArr;
     if (type === "sampler3D") return tex3;
     if (type === "sampler2D") return tex2;
     if (type === "vec2") return new THREE.Vector2(1, 1);
@@ -57,7 +61,7 @@ export function runShaderMatrix(): { rows: ShaderVerdict[]; renderer: string } {
     if (type === "mat3") return new THREE.Matrix3();
     if (type === "mat4") return new THREE.Matrix4();
     if (type === "bool") return true;
-    if (type === "float" || type === "int") return 1;
+    if (type === "float" || type === "int" || type === "uint") return 1;
     throw new Error(`Unsupported fixture uniform type: ${type}`);
   };
   const visit = ({ id, material, geometry: mode }: ShaderRecipe) => {
@@ -99,10 +103,13 @@ export function runShaderMatrix(): { rows: ShaderVerdict[]; renderer: string } {
       // Exercise the guarded point-light chunk as in production (slots remain even at zero intensity).
       if (material instanceof THREE.MeshStandardMaterial) for (let i = 0; i < 16; i++) scene.add(new THREE.PointLight(0xffffff, i === 0 ? 1 : 0));
       const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100); camera.position.z = 3; camera.updateMatrixWorld();
-      renderer.setRenderTarget(target); renderer.compile(scene, camera); renderer.info.reset(); renderer.render(scene, camera);
+      const isMrt = /layout\s*\(\s*location\s*=\s*1\s*\)\s*out\b/.test(source.fragmentShader);
+      const drawTarget = isMrt ? mrtTarget : target;
+      renderer.setRenderTarget(drawTarget); renderer.compile(scene, camera); renderer.info.reset(); renderer.render(scene, camera);
       row.draws = renderer.info.render.calls;
       // Force completion and catch draw-time errors (including incompatible sampler/attribute bindings).
-      const pixel = new Uint8Array(4); renderer.readRenderTargetPixels(target, 0, 0, 1, 1, pixel);
+      const pixel = isMrt ? new Uint16Array(4) : new Uint8Array(4);
+      renderer.readRenderTargetPixels(drawTarget, 0, 0, 1, 1, pixel);
       for (let error = gl.getError(); error !== gl.NO_ERROR; error = gl.getError()) row.logs.push(`GL error 0x${error.toString(16)}`);
     } catch (error) { row.logs.push(error instanceof Error ? error.stack ?? error.message : String(error)); }
     finally {
@@ -132,6 +139,6 @@ export function runShaderMatrix(): { rows: ShaderVerdict[]; renderer: string } {
     return { rows, renderer: identity };
   } finally {
     gl.compileShader = compile; gl.linkProgram = link;
-    composer?.dispose(); target.dispose(); tex2.dispose(); tex3.dispose(); renderer.dispose(); renderer.forceContextLoss();
+    composer?.dispose(); target.dispose(); mrtTarget.dispose(); tex2.dispose(); tex3.dispose(); texArr.dispose(); renderer.dispose(); renderer.forceContextLoss();
   }
 }

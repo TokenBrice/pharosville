@@ -12,7 +12,6 @@ import { dockedRows } from "../layout/docked-rows";
 import { heroPoints } from "../layout/framing";
 import { toCameraPreset } from "../layout/layout-system";
 import type { HarbourLayout } from "../layout/types";
-import { MIRROR_PASS_NAME, MirrorPass } from "../ocean/mirror-pass";
 import { beamPassActive } from "../beam/beam-system";
 
 import type { Grade } from "./time-of-day";
@@ -275,36 +274,27 @@ describe("E08 overview focus", () => {
   });
 });
 
-describe("E35 harbour mirror pass order", () => {
-  it("seals the mirror right after the RenderPass, ahead of the stale fog and the beam, whatever the insertion order", () => {
+describe("PostChain pass order (Phase 2: legacy MirrorPass retired)", () => {
+  it("seals depth prepass at index 0, RenderPass at index 1, StaleFog at index 2, beam, scrub, main, and SMAA", () => {
     const camera = new THREE.PerspectiveCamera();
-    const render = new RenderPass(new THREE.Scene(), camera), mirror = new MirrorPass(camera);
+    const render = new RenderPass(new THREE.Scene(), camera);
     const named = (name: string) => ({ name }) as unknown as Pass;
     const fog = named("fog"), beam = named("beam"), scrub = named("scrub"), main = named("main"), smaa = named("smaa"), depth = named("depth");
-    // the readings system's fog went in at 1 after the mirror did, and the beam at length − 2
-    const passes: Pass[] = [render, fog, mirror, scrub, beam, main, smaa];
-    const composer = { passes, addPass: (pass: Pass, index: number) => { passes.splice(index, 0, pass); } };
+    const passes: Pass[] = [render, fog, scrub, beam, main, smaa];
     const chain = Object.create(PostChain.prototype) as PostChain;
-    Object.assign(chain as unknown as Record<string, unknown>, { composer, scrub, main, depthPrepass: depth });
+    Object.assign(chain as unknown as Record<string, unknown>, {
+      composer: { passes, addPass: (pass: Pass, index: number) => { passes.splice(index, 0, pass); } },
+      scrub, main, depthPrepass: depth,
+    });
     chain.seal();
-    expect(passes.map((pass) => pass.name)).toEqual(["depth", "RenderPass", MIRROR_PASS_NAME, "fog", "beam", "scrub", "main", "smaa"]);
-    // and without the mirror (the default) the order is today's
-    const plain: Pass[] = [render, fog, scrub, beam, main, smaa];
-    const other = Object.create(PostChain.prototype) as PostChain;
-    Object.assign(other as unknown as Record<string, unknown>, { composer: { passes: plain, addPass: (pass: Pass, index: number) => { plain.splice(index, 0, pass); } }, scrub, main, depthPrepass: depth });
-    other.seal();
-    expect(plain.map((pass) => pass.name)).toEqual(["depth", "RenderPass", "fog", "beam", "scrub", "main", "smaa"]);
-    mirror.dispose();
+    expect(passes.map((pass) => pass.name)).toEqual(["depth", "RenderPass", "fog", "beam", "scrub", "main", "smaa"]);
+    expect(passes.findIndex((pass) => pass.name === "fog")).toBe(2);
   });
 
-  it("keeps the beam pass predicate beam OR shimmer: the mirror is its own pass and runs by day with both at zero", () => {
+  it("keeps the beam pass predicate beam OR shimmer independent of water reflections", () => {
     expect(beamPassActive(0, 0)).toBe(false);
     expect(beamPassActive(0.01, 0)).toBe(true);
     expect(beamPassActive(0, 0.01)).toBe(true);
-    const mirror = new MirrorPass(new THREE.PerspectiveCamera());
-    mirror.setActive(true);
-    expect(mirror.enabled).toBe(true);
-    mirror.dispose();
   });
 });
 

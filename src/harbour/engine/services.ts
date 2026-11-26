@@ -42,6 +42,12 @@ export interface WakeCollarService {
   push(x: number, z: number, fx: number, fz: number, loa: number, beam: number, speed: number, kind: 0 | 1, oarPhase: number): void;
 }
 
+/** Phase 2 §5.5: High/Medium target-centered curved RGBA16F moving-vessel wake ribbons. */
+export interface WakeRibbonService {
+  readonly active: boolean;
+  pushMoving(id: number, x: number, z: number, vx: number, vz: number, halfWidth: number, halfLength: number, strength: number, focusX: number, focusZ: number): void;
+}
+
 /** S-3: High-only dynamic per-frame boat/Titan water light pools at night (registered by W2). */
 export interface DynPoolService {
   light(x: number, z: number, y: number, radius: number, r: number, g: number, b: number): void;
@@ -91,6 +97,7 @@ export interface ServiceMap {
   sun: SunRig;
   wake: WakeService;
   wakeCollars: WakeCollarService;
+  wakeRibbons: WakeRibbonService;
   weather: WeatherService;
 }
 

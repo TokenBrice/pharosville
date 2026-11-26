@@ -18,7 +18,6 @@ import type { EngineContext, PreparationEntry, PreparationService } from "./type
 import { isPreparationAbort, preparationMaterial } from "./prepare";
 import { StaticDepthPass } from "../world/depth-prepass";
 import { getHarbourMaterials } from "../world/materials";
-import { MIRROR_PASS_NAME } from "../ocean/mirror-pass";
 
 export interface PostPreparation {
   entries: PreparationEntry[];
@@ -279,14 +278,8 @@ export class PostChain {
    */
   seal(): void {
     const passes = this.composer.passes as Pass[];
-    // E35: the harbour mirror reads the RenderPass's colour and depth before the stale fog or the beam touch them.
-    const mirror = passes.find((pass) => pass.name === MIRROR_PASS_NAME);
-    if (mirror) {
-      passes.splice(passes.indexOf(mirror), 1);
-      passes.splice(passes.findIndex((pass) => pass instanceof RenderPass) + 1, 0, mirror);
-    }
-    // Systems insert scene-linear effects after the original RenderPass at index 1.
-    // Add depth only after those insertions, keeping it adjacent to the colour pass.
+    // Systems insert scene-linear effects (StaleFog, BeamPass) after RenderPass at index 1.
+    // Add depth prepass only after those insertions, keeping it adjacent to the colour pass (StaleFog sits at index 2).
     if (this.depthPrepass) this.composer.addPass(this.depthPrepass, 0);
     passes.splice(passes.indexOf(this.scrub), 1);
     passes.splice(passes.indexOf(this.main), 0, this.scrub);

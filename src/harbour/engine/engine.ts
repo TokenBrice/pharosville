@@ -193,7 +193,7 @@ export class Engine {
         return prepare(...args).finally(() => this.profile?.tag("preparation:end"));
       };
     }
-    prefetchHarbour(this.ctx.assets);
+    prefetchHarbour(this.ctx.assets, this.governor.tier);
   }
 
   /** Register a system; order of registration is update order. One added after boot (the UI's frame hook) runs once its init settles. */
@@ -472,7 +472,8 @@ export class Engine {
   /** One tier's complete feature identity: tier, SMAA preset, preparation/material generations and compile features. */
   private qualityIdentity(settings: QualitySettings): string {
     const materials = getHarbourMaterials(this.ctx);
-    return `${settings.tier}:${settings.smaa}:${this.preparation.generation}:${materials.generation}:${shaderFeatureKey(materials.featureIdentity(0, settings.tier === "low"))}:${this.ctx.uniforms.uFoliage.value.y > 0.001}`;
+    const oceanId = this.ctx.services.get("ocean")?.featureIdentity?.(settings.tier) ?? "";
+    return `${settings.tier}:${settings.smaa}:${this.preparation.generation}:${materials.generation}:${shaderFeatureKey(materials.featureIdentity(0, settings.tier === "low"))}:${this.ctx.uniforms.uFoliage.value.y > 0.001}:${oceanId}`;
   }
 
   /** Target world, private passes and SMAA stay resident until teardown; no live state crosses an await. */
@@ -484,13 +485,15 @@ export class Engine {
     if (cached) return preparationConsumer(cached, signal);
     let preparedKey = key;
     const pending = (async () => {
+      const prepareOcean = this.ctx.services.get("ocean")?.prepareTier?.(settings.tier);
+      if (prepareOcean) await prepareOcean;
       while (!this.disposed && !this.aborted) {
         const generation = this.preparation.generation;
         const materialGeneration = materials.generation;
         const post = this.post.preparationEntries(settings);
         const scope = () => {
           const restoreKit = materials.preparationScope(settings.tier === "low");
-          const restoreOcean = this.ctx.services.get("ocean")?.preparationScope(settings.tier === "low");
+          const restoreOcean = this.ctx.services.get("ocean")?.preparationScope(settings.tier);
           return () => { restoreOcean?.(); restoreKit(); };
         };
         try {
@@ -519,8 +522,13 @@ export class Engine {
 
   private warmQuality(): void {
     // The first fleet frame can reveal immediately; submissions yield to bounded idle tasks.
-    // Retain every preset until teardown: seasonal/world batch adoption must not evict them.
-    for (const settings of Object.values(TIERS)) {
+    // Retain every preset at or below the starting tier until teardown; never eagerly construct upper-tier systems on Low.
+    const rankOf = (t: QualitySettings["tier"]) => (t === "high" ? 2 : t === "medium" ? 1 : 0);
+    const startRank = rankOf(this.governor.tier);
+    const targets = this.governor.auto
+      ? Object.values(TIERS).filter((s) => rankOf(s.tier) <= startRank)
+      : [this.governor.settings];
+    for (const settings of targets) {
       void this.prepareQuality(settings, undefined, "background").catch((error: unknown) => {
         if (!isPreparationAbort(error)) console.error("[harbour] quality idle preparation failed", error);
       });

@@ -1,5 +1,8 @@
+import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import book from "../data/prelaunch.json";
+import { LAYER_REFLECT, enableReflectLayer } from "../ocean/reflect-layer";
+import { mergeStatic } from "./assemble";
 import { activityForRate, applyFlowOverrides, civicFlows, dominanceFor, hasFlowDay, workLevels } from "./flows";
 import { allocateYard, gradeTally, launchedIds, stageFor, topMovers, type PrelaunchBook, type PrelaunchCoin } from "./yard";
 
@@ -121,6 +124,32 @@ describe("the Shipyard", () => {
     const berths = plan.filter((p) => p.slot?.kind === "berth");
     const order = ["rigged", "painted", "planked", "ribs", "keel"];
     for (let i = 1; i < berths.length; i++) expect(order.indexOf(berths[i].stage)).toBeGreaterThanOrEqual(order.indexOf(berths[i - 1].stage));
+  });
+
+  it("mergeStatic preserves LAYER_REFLECT on batched civic meshes while keeping unflagged meshes on layer 0 only", () => {
+    const root = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial();
+    mat.name = "hb_kit";
+    const reflected = new THREE.Group();
+    const mA = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), mat);
+    const mB = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), mat);
+    mB.position.set(5, 0, 0);
+    reflected.add(mA, mB);
+    enableReflectLayer(reflected);
+
+    const hidden = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+    hidden.position.set(-5, 0, 0);
+    root.add(reflected, hidden);
+
+    const merged = mergeStatic([root]);
+
+    const mirrorMask = new THREE.Layers();
+    mirrorMask.set(LAYER_REFLECT);
+    expect(merged.some((m) => m.name.startsWith("civic-merged-") && m.layers.test(mirrorMask))).toBe(true);
+    expect(merged.some((m) => m.name.startsWith("civic-merged-") && !m.layers.test(mirrorMask))).toBe(true);
+
+    for (const m of merged) m.geometry.dispose();
+    mat.dispose();
   });
 
   it("is deterministic and overflows to no slot rather than overlap", () => {

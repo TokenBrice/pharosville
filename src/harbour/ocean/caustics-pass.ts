@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { PreparationEntry } from "../engine/types";
-import { WAVES, wavesGLSL } from "./waves";
+import { OCEAN_DISP_GLSL } from "./shaders/ocean-disp";
+import { WAVES } from "./waves";
 
 /**
  * High-only Evan-Wallace refracted-sun-ray caustics pass (`hb_caustics`, Phase 1 Workstream 1.5, H1 / H10 / D-7).
@@ -27,6 +28,13 @@ export const CAUSTICS_SNAP = 2;          // 2 m world snap
 export const CAUSTICS_REF_Y = -3.0;      // reference projection plane Y (m)
 
 const WAVES_AMP_SUM = WAVES.reduce((s, w) => s + w.amp, 0).toFixed(6);
+const W0 = WAVES[0]!;
+const W0_KX_GLSL = (W0.dirX * W0.k * W0.amp).toFixed(6);
+const W0_KZ_GLSL = (W0.dirZ * W0.k * W0.amp).toFixed(6);
+const W0_K_GLSL = W0.k.toFixed(6);
+const W0_DX_GLSL = W0.dirX.toFixed(6);
+const W0_DZ_GLSL = W0.dirZ.toFixed(6);
+const W0_W_GLSL = W0.w.toFixed(6);
 const REF_Y_GLSL = CAUSTICS_REF_Y.toFixed(1);
 
 export const CAUSTICS_VERT = /* glsl */ `
@@ -36,19 +44,23 @@ uniform sampler2D uSdf;
 uniform vec4 uSdfBounds;
 uniform vec2 uSceneCenter;
 uniform vec3 uSunDir;
+uniform vec3 uCameraPos;
 uniform vec4 uCausticBounds;
 
 varying vec3 vOldPos;
 varying vec3 vNewPos;
 
-${wavesGLSL()}
+${OCEAN_DISP_GLSL}
 
 void main() {
   vec2 xz = mix(uCausticBounds.xy, uCausticBounds.zw, position.xy);
 
   vec2 suv = (xz - uSdfBounds.xy) / (uSdfBounds.zw - uSdfBounds.xy);
   float inside = step(0.0, suv.x) * step(suv.x, 1.0) * step(0.0, suv.y) * step(suv.y, 1.0);
-  float coast = mix(200.0, (mix(textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0).r, 1.0, smoothstep(470.0, 560.0, length(xz - uSceneCenter))) - 0.5) * 128.0, inside);
+  float mf = smoothstep(470.0, 560.0, length(xz - uSceneCenter));
+  vec4 sd = textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0);
+  float coast = mix(200.0, (mix(sd.r, 1.0, mf) - 0.5) * 128.0, inside);
+  float depth = mix(40.0, mix(sd.g, 1.0, mf) * 40.0, inside);
   float damp = smoothstep(0.0, 34.0, coast) * 0.9 + 0.1 * smoothstep(-2.0, 2.0, coast);
   float amp = uSea.x * damp;
 
@@ -91,6 +103,34 @@ void main() {
     capH += 0.032 * capScale * sin(ph);
   }
   waveY += capH;
+  if (uFftOn > 0.5) {
+    vec2 shoreN = hbShoreNormal(uSdf, suv, coast, inside);
+    vec2 xzS;
+    float shoalK;
+    hbShoalCoords(xz, depth, coast, shoreN, xzS, shoalK);
+    float camD = length(xz - uCameraPos.xz);
+    float farFade = 1.0 - smoothstep(2400.0, 5200.0, camD);
+    float c1Fade = 1.0 - smoothstep(420.0, 1450.0, camD);
+    float c2Fade = 1.0 - smoothstep(120.0, 360.0, camD);
+    float vLod = clamp(log2(max(camD / 280.0, 1.0)), 0.0, 3.0);
+    vec3 fD0 = textureLod(uFftAtlas, vec3(xzS * uFftScales.x, 0.0), vLod).xyz * uFftWeights.x * farFade;
+    vec3 fD1 = c1Fade > 0.002 ? textureLod(uFftAtlas, vec3(xzS * uFftScales.y, 1.0), vLod).xyz * uFftWeights.y * c1Fade : vec3(0.0);
+    vec3 fD2 = c2Fade > 0.002 ? textureLod(uFftAtlas, vec3(xz * uFftScales.z, 2.0), 0.0).xyz * uFftWeights.z * c2Fade : vec3(0.0);
+    vec2 fS0 = textureLod(uFftAtlas, vec3(xzS * uFftScales.x, 3.0), vLod).rg * uFftWeights.x * farFade;
+    vec2 fS1 = c1Fade > 0.002 ? textureLod(uFftAtlas, vec3(xzS * uFftScales.y, 4.0), vLod).rg * uFftWeights.y * c1Fade : vec2(0.0);
+    vec2 fS2 = c2Fade > 0.002 ? textureLod(uFftAtlas, vec3(xz * uFftScales.z, 5.0), 0.0).rg * uFftWeights.z * c2Fade : vec2(0.0);
+    float sDamp = damp * smoothstep(0.0, 2.8, max(coast, 0.0));
+    float steepBoost = mix(1.0, 1.32, shoalK);
+    float swAmp = amp * (1.0 - smoothstep(2500.0, 5000.0, camD)) * uFftWeights.w;
+    vec3 sw0 = hbSwell0Disp(xzS, uTime, swAmp);
+    sw0.y *= mix(1.0, 1.24, shoalK);
+    float sw0Ph = ${W0_K_GLSL} * dot(vec2(${W0_DX_GLSL}, ${W0_DZ_GLSL}), xzS) - ${W0_W_GLSL} * uTime;
+    vec2 sw0Slope = vec2(${W0_KX_GLSL}, ${W0_KZ_GLSL}) * (cos(sw0Ph) * swAmp * mix(1.0, 1.24, shoalK));
+    waveY = sw0.y + (fD0.y + fD1.y + fD2.y) * sDamp * steepBoost + capH;
+    vec2 combS0 = sw0Slope + fS0 * sDamp * steepBoost;
+    gN = normalize(vec3(-combS0.x, 1.0, -combS0.y));
+    capSlope += (fS1 * 0.35 + fS2 * 0.55) * (0.55 + 0.45 * damp);
+  }
   vec3 N_wave = normalize(vec3(gN.x * 0.45 - capSlope.x, max(gN.y, 0.30), gN.z * 0.45 - capSlope.y));
 
   float sunLen = length(uSunDir);
@@ -195,6 +235,7 @@ export class CausticsPass {
   private active = false;
   private hasDayContent = false;
   private readonly fallback: THREE.DataTexture;
+  private readonly fftFallback: THREE.DataArrayTexture | null;
   private readonly material: THREE.ShaderMaterial;
   private readonly scene = new THREE.Scene();
   private readonly cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -208,7 +249,13 @@ export class CausticsPass {
     uSdfBounds: THREE.IUniform<THREE.Vector4>;
     uSceneCenter: THREE.IUniform<THREE.Vector2>;
     uSunDir: THREE.IUniform<THREE.Vector3>;
+    uCameraPos?: THREE.IUniform<THREE.Vector3>;
+    uFftAtlas?: THREE.IUniform<THREE.DataArrayTexture>;
+    uFftOn?: THREE.IUniform<number>;
+    uFftScales?: THREE.IUniform<THREE.Vector4>;
+    uFftWeights?: THREE.IUniform<THREE.Vector4>;
   }) {
+    this.fftFallback = shared.uFftAtlas ? null : Object.assign(new THREE.DataArrayTexture(new Uint8Array(6 * 4), 1, 1, 6), { needsUpdate: true });
     this.fallback = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1, THREE.RGBAFormat);
     this.fallback.minFilter = THREE.LinearFilter;
     this.fallback.magFilter = THREE.LinearFilter;
@@ -240,7 +287,12 @@ export class CausticsPass {
       fragmentShader: CAUSTICS_FRAG,
       uniforms: {
         ...shared,
+        uCameraPos: shared.uCameraPos ?? { value: new THREE.Vector3() },
         uCausticBounds: this.uniforms.uCausticBounds,
+        uFftAtlas: { value: null },
+        uFftOn: shared.uFftOn ?? { value: 0 },
+        uFftScales: shared.uFftScales ?? { value: new THREE.Vector4(1 / 509, 1 / 97, 1 / 17.3, 1) },
+        uFftWeights: shared.uFftWeights ?? { value: new THREE.Vector4(1, 1, 1, 1) },
       },
       blending: THREE.CustomBlending,
       blendEquation: THREE.AddEquation,
@@ -252,6 +304,7 @@ export class CausticsPass {
       transparent: true,
       fog: false,
     });
+    this.material.uniforms.uFftAtlas = shared.uFftAtlas ?? { value: this.fftFallback! };
 
     this.mesh = new THREE.Mesh(this.placeholderGeo, this.material);
     this.mesh.name = "ocean-caustics";
@@ -344,6 +397,7 @@ export class CausticsPass {
   dispose(): void {
     this.setActive(false);
     this.fallback.dispose();
+    this.fftFallback?.dispose();
     this.compilationTarget.dispose();
     this.placeholderGeo.dispose();
     this.material.dispose();

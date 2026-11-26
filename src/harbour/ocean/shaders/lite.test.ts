@@ -4,17 +4,20 @@ import { OCEAN_SURFACE } from "./surface";
 import { OCEAN_REFLECTION } from "./reflection";
 import { OCEAN_FOAM } from "./foam-wake";
 
-describe("B09 Lite water", () => {
-  it("keeps the shared wave phase evaluation and replaces four ripple layers with two scales", () => {
+describe("B09 Lite water & Phase 2 sampler/FFT split", () => {
+  it("keeps the shared wave phase evaluation, two uRipple scales on HB_LITE, and swaps uRipple for uFftAtlas on Full", () => {
     expect(OCEAN_SURFACE.match(/gerstnerSums\(xzw, t, gS, crestH\)/g)).toHaveLength(1);
     expect(OCEAN_SURFACE).toContain("gerstnerNormalOf(gS, ampShade * groups)");
     expect(OCEAN_REFLECTION).toContain("gerstnerNormalOf(gS, amp * groups)");
-    const from = OCEAN_SURFACE.indexOf("vec4 r1 ="), to = OCEAN_SURFACE.indexOf("float shoreCalm");
-    const ripple = OCEAN_SURFACE.slice(from, to), [low, full] = ripple.split("#else");
+    const from = OCEAN_SURFACE.indexOf("#ifdef HB_LITE\n  vec4 r1 =");
+    const to = OCEAN_SURFACE.indexOf("vec2 dn = dnWave + dnFine;");
+    const normalBlock = OCEAN_SURFACE.slice(from, to);
+    const [low, full] = normalBlock.split("#else");
     expect(low.match(/texture2D\(uRipple/g)).toHaveLength(2);
     expect(low).toContain("xz * 0.043");
     expect(low).toContain("(rot * rot * xz) * 0.0093");
-    expect(full.match(/texture2D\(uRipple/g)).toHaveLength(3); // plus r1 before the conditional
+    expect(full).toContain("textureGrad(uFftAtlas");
+    expect(full).not.toContain("uRipple");
   });
 
   it("uses the adjacent reflection taps 1/2 at twice the six-tap weights, so no copy floats out in the basin", () => {
@@ -34,18 +37,16 @@ describe("B09 Lite water", () => {
     expect(OCEAN_FOAM).toContain("if (laceFar < 1.0)");
     expect(OCEAN_FOAM).toContain("\n  }\n  float lace = mix(hbNet(lA, lB, 0.05), 0.3, laceFar);");
     const causBlock = OCEAN_SURFACE.slice(OCEAN_SURFACE.indexOf("if (cGain"), OCEAN_SURFACE.indexOf("causReef = cGain"));
-    const [causBase, causDisp] = causBlock.split("#ifndef HB_LITE");
-    expect(causBase.match(/textureGrad\(uRipple/g)).toHaveLength(2);
-    expect(causDisp.match(/textureGrad\(uRipple/g)).toHaveLength(4);
     expect(causBlock).not.toMatch(/fwidth|dFdx|dFdy|texture2D/);
     const laceBlock = OCEAN_FOAM.slice(OCEAN_FOAM.indexOf("if (laceFar"), OCEAN_FOAM.indexOf("float lace ="));
     expect(laceBlock.match(/textureGrad\(/g)).toHaveLength(2);
     expect(laceBlock).not.toMatch(/fwidth|dFdx|dFdy|texture2D/);
   });
 
-  it("guards W1 high-frequency sea effects behind HB_LITE and preserves S-2 dynamic pool + horizon seam fixes", () => {
-    expect(OCEAN_SURFACE).toContain("textureLod(uSdf, clamp(suv + vec2(eS, 0.0), 0.0, 1.0), 2.0)");
-    expect(OCEAN_SURFACE).toContain("if (live.r > 0.01)");
+  it("guards W1/Phase 2 high-frequency sea effects behind HB_LITE and preserves S-2 dynamic pool + horizon seam fixes", () => {
+    expect(OCEAN_SURFACE).toContain("shoreN = hbShoreNormal(uSdf, suv, coast, inside);");
+    expect(OCEAN_SURFACE).toContain("textureLod(sdfTex, clamp(suv + vec2(eS, 0.0), 0.0, 1.0), 2.0)");
+    expect(OCEAN_SURFACE).toContain("if (uRibbonsOn > 0.5 && (abs(kelH) > 0.004 || live.r > 0.01))");
     expect(OCEAN_REFLECTION).toContain("if (uDynPool.x > 0.01)");
     expect(OCEAN_REFLECTION).toContain("textureLod(uDynPoolTex, clamp(duv, 0.0, 1.0), 0.0)");
     expect(OCEAN_REFLECTION).toContain("1.0 - 0.55 * hullOcc");
@@ -53,6 +54,7 @@ describe("B09 Lite water", () => {
     expect(OCEAN_REFLECTION).toContain("1.0 - 0.65 * hullOcc");
     expect(OCEAN_FRAG).toContain("vec3 hazeC = band(thV, -0.05, 0.0);");
     expect(OCEAN_REFLECTION).toContain("glint *= 1.0 - smoothstep(uHorizonDist * 0.80, uHorizonDist * 0.96, fwdD);");
+    expect(OCEAN_FRAG).toContain("gl_FragColor = vec4(col, 1.0);");
   });
 
   it("retains the analytical foam bands, Shoals and PSI reach equations in both variants", () => {

@@ -1,11 +1,7 @@
 /**
- * Sky mirror, golden crests, the sun/moon glitter, sheen, far band and the beam on the water. (Notes here: shader text
- * ships in the first-frame bytes.) E11: a low sun or twilight lays a Fresnel floor on the basin (uSeaLow.y, 0 at noon).
- * E13: the spark and facet lobes read the resolved facets, else the calm glitter/swell normals (unres), widened by the
- * footprint with their energy held (sea-tone.ts hbLobe); the spark masks melt into their mean coverage (aa); no sun or
- * moon glint lifts its pixel over 0.85 × the bloom threshold (hbGlintCap; the heliograph after it keeps its scale); the
- * Low tier drops the twinkling facets. The golden-crest, low-sun sheen and far-band blocks are skipped (coherently)
- * where they add exactly nothing.
+ * Sky IBL mirror, High PlanarMirror / Medium same-frame Hi-Z SSR compositing, nocturnal harbour pools + hero
+ * anisotropic GGX glints, FFT-driven crest SSS, FFT slope-variance GGX solar/lunar glitter, and Pharos beam glint.
+ * Strictly B07/C04 compliant (ascending `smoothstep`, squaring by multiplication, `hbGlintCap` <= 0.85 * uBloomT).
  */
 export const OCEAN_REFLECTION = /* glsl */ `  vec3 vd = -V;
   vec3 R = reflect(vd, N);
@@ -20,7 +16,7 @@ export const OCEAN_REFLECTION = /* glsl */ `  vec3 vd = -V;
   vec3 sky = band(thR, max(eR, -0.4), 0.7 + 1.85 * rough + clamp(eR * 0.08, 0.0, 1.2));
   vec4 mCloud = hbMirrorClouds(sky, vWorld, Rr);
   vec3 Nf = normalize(mix(Nr, N, 0.24 * grazeDamp));
-  float NdV = max(dot(Nf, V), 0.0);
+  float NdV = clamp(dot(Nf, V), 0.0, 1.0);
   float F = 0.03 + 0.97 * pow(1.0 - NdV, 5.0);
   F *= mix(1.08, 0.64, clamp(rough * 0.75, 0.0, 1.0)) * (1.0 + 0.25 * zm.b);
   F = min(F * mix(1.0, 1.18, stormSea), 0.64 + 0.12 * zm.b);
@@ -28,11 +24,51 @@ export const OCEAN_REFLECTION = /* glsl */ `  vec3 vd = -V;
   F *= 1.0 - 0.32 * max(quayOcc, pierOcc);
   F = max(F, uSeaLow.y * zm.b);
   F *= 1.0 - 0.55 * hullOcc;
-  vec3 col = body * (1.0 - F) + sky * F;
   float mA = clamp(mCloud.a, 0.0, 1.0);
-  mA *= 1.0 - smoothstep(0.35, 0.72, uNight);
-  col += (mCloud.rgb - sky) * mA * max(F, 0.2 * (1.0 - 0.5 * min(rough, 1.0)));
+  mA *= 1.0 - smoothstep(0.20, 0.58, uNight);
   sky = mix(sky, mCloud.rgb, mA);
+
+  float mirrorCov = 0.0;
+  vec3 reflEnv = sky;
+  #ifndef HB_LITE
+  if (uReflectMode > 0.5 && uMirror.x > 0.001) {
+    float mirrorW = (1.0 - uPrecip.x) * (1.0 - smoothstep(0.18, 0.55, stormSea) * 0.45);
+    vec2 awayM = -toCam.xz / max(camD, 1.0);
+    vec2 slopeM = Nr.xz / max(Nr.y, 0.45);
+    float mContact = clamp(max(1.0 - smoothstep(1.5, 18.0, min(max(coast, 0.0), sdist)), smoothstep(0.05, 0.45, hullOcc + live.g * 0.5)), 0.0, 1.0);
+    float mWob = mix(uMirror.y, min(uMirror.y, 0.006), mContact);
+    vec2 wobUv = vec2(dot(slopeM, vec2(-awayM.y, awayM.x)) * 0.42, dot(slopeM, awayM) * 0.90) * mWob;
+    vec2 muv;
+    bool inBounds = false;
+    float lodM = 0.0;
+    if (uReflectMode > 1.5) {
+      vec4 mc = uPlanarVP * vec4(vWorld.x, 0.0, vWorld.z, 1.0);
+      if (mc.w > 0.01) {
+        muv = mc.xy / mc.w * 0.5 + 0.5 + wobUv;
+        inBounds = muv.x > 0.002 && muv.x < 0.998 && muv.y > 0.002 && muv.y < 0.998;
+        lodM = clamp(0.45 + rough * 2.1 + fftSlopeVar * 2.8, 0.35, 3.0) * (1.0 - 0.35 * mContact);
+      }
+    } else {
+      vec2 sUv = gl_FragCoord.xy / max(uCapSize, vec2(1.0));
+      muv = sUv + wobUv * 0.72;
+      inBounds = muv.x > 0.002 && muv.x < 0.998 && muv.y > 0.002 && muv.y < 0.998;
+    }
+    if (inBounds && mirrorW > 0.001) {
+      vec4 m = textureLod(uMirrorTex, muv, lodM);
+      float mEdge = smoothstep(0.0, 0.03, min(min(muv.x, 1.0 - muv.x), min(muv.y, 1.0 - muv.y)));
+      float cov = clamp(m.a, 0.0, 1.0) * mEdge * mirrorW;
+      if (cov > 0.001) {
+        vec3 mCol = clamp(m.rgb / max(m.a, 1e-4), vec3(0.0), vec3(32.0));
+        float strK = clamp(uMirror.x, 0.0, 1.0);
+        mirrorCov = clamp(cov * strK, 0.0, 1.0);
+        reflEnv = mix(sky, mCol, mirrorCov);
+      }
+    }
+  }
+  #endif
+  float F_phys = 0.02 + 0.98 * pow(1.0 - NdV, 5.0);
+  float F_eff = mix(F, clamp(F_phys, 0.02, 1.0), mirrorCov);
+  vec3 col = body * (1.0 - F_eff) + reflEnv * F_eff;
 
   if (uWindowGlow > 0.02) {
     vec2 away = -toCam.xz / max(camD, 1.0);
@@ -78,15 +114,15 @@ export const OCEAN_REFLECTION = /* glsl */ `  vec3 vd = -V;
     acc *= smoothstep(0.008, 0.20, poolLum) * 1.32;
     acc = acc / (1.0 + acc * 0.48);
     float along = dot(xz, away), across = dot(xz, side);
-    vec2 rUv = vec2(across * 0.014 + (nA.g - 0.5) * 0.12, along * 0.056 - t * 0.014 + (r3.g - 0.5) * 0.10);
+    vec2 rUv = vec2(across * 0.014 + (nA.g - 0.5) * 0.12, along * 0.056 - t * 0.014 + (nB.g - 0.5) * 0.10);
     float nr1 = texture2D(uNoise, rUv).g;
     float nr2 = texture2D(uNoise, vec2(rUv.x * 1.85 + 0.37, rUv.y * 2.15 + t * 0.019) + (nB.rg - 0.5) * 0.08).b;
-    float ripSlope = clamp(0.5 + dot(dnWave, away) * 4.2 + dot(gN.xz, away) * 5.0 + (r1.a - 0.5) * 0.65, 0.0, 1.0);
+    float ripSlope = clamp(0.5 + dot(dnWave, away) * 4.2 + dot(gN.xz, away) * 5.0 + (ripMicro - 0.5) * 0.65, 0.0, 1.0);
     float ribbon = smoothstep(0.36, 0.84, nr1 * 0.30 + nr2 * 0.20 + ripSlope * 0.58);
     float sharpCrest = smoothstep(0.70, 0.96, ribbon);
     float shim = mix(0.10, 1.90, ribbon * ribbon * 0.55 + ribbon * 0.45);
     vec3 townTint = mix(vec3(0.86, 0.72, 0.56), vec3(1.18, 0.96, 0.68), ribbon) + vec3(0.28, 0.16, 0.04) * sharpCrest;
-    vec3 townRefl = acc * townTint * shim * (1.0 - 0.70 * hullOcc);
+    vec3 townRefl = acc * townTint * shim * (1.0 - 0.70 * hullOcc) * (1.0 - 0.32 * mirrorCov);
     float calmK = mix(1.0, 1.32, zm.b) * (1.0 - 0.5 * storm) * (1.0 - 0.5 * uPrecip.x);
     float fadeD = 1.0 - 0.58 * smoothstep(280.0, 1050.0, camD);
     col += townRefl * smoothstep(0.02, 0.55, uWindowGlow) * calmK * fadeD * (0.34 + 0.58 * F) * step(0.0, coast);
@@ -142,7 +178,8 @@ export const OCEAN_REFLECTION = /* glsl */ `  vec3 vd = -V;
     vec2 sunH = normalize(uSunDir.xz + 1e-4);
     float backH = clamp(dot(-viewH, sunH), 0.0, 1.0);
     float steepFwd = clamp(dot(N.xz, viewH) * 1.6, 0.0, 1.0);
-    float thinCrest = smoothstep(0.12, 0.92, organicCrest * 0.72 + steepFwd * 0.55 + 0.18 * (r1.a - 0.5));
+    float fftCrestTerm = uFftOn > 0.5 ? (clamp(fftDispY * 0.85, 0.0, 1.0) * 0.65 + (1.0 - clamp(fftJMin, 0.0, 1.0)) * 0.55) : (organicCrest * 0.72);
+    float thinCrest = smoothstep(0.12, 0.92, fftCrestTerm + steepFwd * 0.55 + 0.14 * (ripMicro - 0.5));
     float openWater = (1.0 - 0.52 * zm.b) * step(1.0, coast) * (1.0 - far01 * 0.45);
     float sssWave = smoothstep(0.025, 0.30, amp + 0.09 * rough);
     float sssClear = (1.0 - cover * 0.72) * (1.0 - stormSea * 0.65) * sunSh;
@@ -156,23 +193,31 @@ export const OCEAN_REFLECTION = /* glsl */ `  vec3 vd = -V;
   }
 
   vec3 gT = gerstnerNormalOf(gS, amp * groups);
-  vec3 Nenv = normalize(vec3(gT.x * 0.62 + dnWave.x * 0.24, gT.y, gT.z * 0.62 + dnWave.y * 0.24));
+  vec3 Nenv = uFftOn > 0.5 ? normalize(vec3(gN.x * 0.62 + dnWave.x * 0.24, gN.y, gN.z * 0.62 + dnWave.y * 0.24))
+                           : normalize(vec3(gT.x * 0.62 + dnWave.x * 0.24, gT.y, gT.z * 0.62 + dnWave.y * 0.24));
   float rsE = max(dot(reflect(vd, Nenv), uGlintDir), 0.0);
   float rs = mix(max(dot(R, uGlintDir), 0.0), rsE, unres);
   float rsp = mix(max(dot(reflect(vd, Nsp), uGlintDir), 0.0), rsE, unres);
   float aa = unres;
-  float tw = mix(smoothstep(0.8, 0.97, r2.a * 0.6 + r1.a * 0.4 + 0.22 * sin(t * 1.3 + nC.a * 30.0)), 0.03, aa);
+  float tw = mix(smoothstep(0.8, 0.97, ripTw + 0.22 * sin(t * 1.3 + nC.a * 30.0)), 0.03, aa);
   float env = pow(rsE, mix(75.0, 320.0, uNight));
   float core = pow(rsE, mix(260.0, 620.0, uNight));
   float overcast = 1.0 - 0.9 * smoothstep(0.35, 0.8, uWeatherSea.x);
-  float sparks = min(hbLobe(rs, 300.0, 4.0 * spread) * 3.6 + hbLobe(rsp, 1100.0, 4.0 * spread) * 8.0, 2.4) * mix(1.0, 0.6, uNight);
   #ifdef HB_LITE
-  sparks = 0.0;
+  float sparks = 0.0;
+  #else
+  vec3 Hg = normalize(uGlintDir + V);
+  float ndhG = max(dot(mix(Nsp, N, unres * 0.65), Hg), 0.0);
+  float aGgx = clamp(sqrt(0.0022 + rough * rough * 0.014 + fftSlopeVar * 0.65 + spread * 0.45), 0.042, 0.52);
+  float a2 = aGgx * aGgx;
+  float ggxD = ndhG * ndhG * (a2 - 1.0) + 1.0;
+  float ggxSpec = clamp((a2 / (3.14159 * ggxD * ggxD + 1e-4)) * (0.04 + 0.96 * F) * 0.048, 0.0, 2.4);
+  float sparks = (uFftOn > 0.5 ? ggxSpec * 1.15 : min(hbLobe(rs, 300.0, 4.0 * spread) * 3.2 + hbLobe(rsp, 1100.0, 4.0 * spread) * 7.2, 2.4)) * mix(1.0, 0.6, uNight);
   #endif
-  float microSh = 0.76 + 0.48 * smoothstep(0.30, 0.85, r1.a * 0.65 + r3.a * 0.35);
-  float moonWave = smoothstep(0.42, 0.90, r1.a * 0.45 + r3.a * 0.35 + nB.g * 0.25);
+  float microSh = 0.76 + 0.48 * smoothstep(0.30, 0.85, ripMicro);
+  float moonWave = smoothstep(0.42, 0.90, ripMoon);
   float rMoon = max(dot(Rr, uGlintDir), 0.0);
-  float moonFacet = hbLobe(rMoon, 380.0, 2.0 * spread) * smoothstep(0.44, 0.88, r1.a * 0.50 + r2.a * 0.28 + nC.a * 0.28) * (0.22 + 0.78 * env) * uNight;
+  float moonFacet = hbLobe(rMoon, 380.0, 2.0 * spread) * smoothstep(0.44, 0.88, ripMoon * 0.72 + nC.a * 0.28) * (0.22 + 0.78 * env) * uNight;
   float nightBroad = 1.0 - 0.98 * uNight;
   vec3 glintTint = mix(vec3(1.0), vec3(0.72, 0.86, 1.16), uNight);
   vec3 glint = uGlintCol * glintTint * (
@@ -189,7 +234,7 @@ export const OCEAN_REFLECTION = /* glsl */ `  vec3 vd = -V;
     float nAlong = dot(N.xz, moonH), nCross = dot(N.xz, moonS);
     vec3 Nmoon = normalize(vec3(moonH.x * nAlong * 1.25 + moonS.x * nCross * 0.38, N.y, moonH.y * nAlong * 1.25 + moonS.y * nCross * 0.38));
     float rFull = max(dot(reflect(vd, Nmoon), uGlintDir), 0.0);
-    float moonGap = smoothstep(0.46, 0.86, r1.a * 0.40 + r3.a * 0.34 + organicCrest * 0.32 + 0.14);
+    float moonGap = smoothstep(0.46, 0.86, ripMoon * 0.72 + organicCrest * 0.32 + 0.14);
     float moonColMask = smoothstep(0.955, 0.995, rsE);
     float moonAniso = hbLobe(rFull, 140.0, 2.0 * spread) * 1.35 * moonGap * moonColMask
                     + hbLobe(rFull, 440.0, 2.5 * spread) * 2.30 * smoothstep(0.56, 0.90, moonGap) * moonColMask;
@@ -236,7 +281,6 @@ export const OCEAN_REFLECTION = /* glsl */ `  vec3 vd = -V;
   vec3 beam = vec3(0.0);
   if (uBeamPos.y > -100.0 && dot(uBeamCol, vec3(1.0)) > 0.001) {
     vec2 rel = xz - uBeamPos.xz;
-    float dist = length(rel);
     vec3 Lb = normalize(uBeamPos - vWorld);
     vec3 Hb = normalize(Lb + V);
     float bspec = hbLobe(max(dot(Nsp, Hb), 0.0), 260.0, 2.0 * spread);
@@ -252,7 +296,7 @@ export const OCEAN_REFLECTION = /* glsl */ `  vec3 vd = -V;
     float lanternShelter = 1.0 - smoothstep(0.05, 0.55, zm.b);
     float lrE = max(dot(reflect(vd, Nenv), Lb), 0.0);
     float lr = max(dot(reflect(vd, Nr), Lb), 0.0);
-    float lWave = smoothstep(0.32, 0.88, r1.a * 0.48 + r2.a * 0.28 + nB.g * 0.28);
+    float lWave = smoothstep(0.32, 0.88, ripMoon * 0.72 + nB.g * 0.28);
     float lTw = min(hbLobe(lr, 480.0, 2.5 * spread) * 2.1 * lWave, 1.15) * smoothstep(0.08, 0.68, pow(lrE, 85.0));
     beam += uBeamCol * (lTw * 0.78 * (1.0 - 0.55 * uPrecip.x) + hbLobe(lrE, 260.0, spread) * 0.05 * lWave * (1.0 - 0.45 * uPrecip.x) + hbLobe(lr, 180.0, 2.0 * spread) * 0.05 * lWave) * lanternShelter * (0.28 + 0.62 * min(uBeamShape.w, 2.5));
   }

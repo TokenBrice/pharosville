@@ -4,7 +4,11 @@ import { SEA_TONE_GLSL } from "../sea-tone";
 import { SUN_SHADOW_GLSL } from "../../world/sun-shadow";
 import { SEA_GOLDEN_GLSL } from "../sea-golden";
 import { SEA_HELIO_GLSL } from "../sea-helio";
-import { SWELL_DIR, WAVES, wavesGLSL } from "../waves";
+import { SWELL_DIR, WAVES } from "../waves";
+import { OCEAN_DISP_GLSL } from "./ocean-disp";
+
+const w0 = WAVES[0]!;
+const f6 = (v: number) => v.toFixed(6);
 
 function waveHessianGLSL(): string {
   const f = (v: number) => v.toFixed(6);
@@ -16,16 +20,19 @@ function waveHessianGLSL(): string {
 }
 
 /**
- * The sea surface: fields, normals and the unlit body. (Shader text ships in the first-frame bytes, so the longer notes
- * live here.) Roughness: cat's paws are drifting patches of wind-roughened water against glassy slicks, and the shared
- * gust field's paws join them (the patches that heel the hulls roughen the water they cross); a rain-pitted sea loses
- * its mirror; from Warning up the DEWS wind raises a wind sea (whitecaps and spindrift) of its own; the harbours lie in
- * the lee (calmer, glassier) while the Roads catch the open-sea wind; lee slicks behind still hulls (wake live A,
- * decorative) are glassy satin water where the ripple drops away. E12/E13: `fp` is the water a pixel covers (m, DPR-aware, unlike camD): Kelvin foam fades by it, and the
- * ripple facets finer than the pixel (`unres`) glint off the swell normal with lobes widened by `spread` (sea-tone.ts
- * hbLobe); the Low tier reads the calm normals only. E11: hbSeaHour lays the hour's light on the body (sea-tone.ts).
- * E02: past the island's coasts the SDF's coast and depth fade to open water (sea-sdf.ts SDF_ISLAND_RADII), so the
- * retired mainland leaves no pale shoal or foam line on the sea; structures, buoys and the zones are untouched.
+ * Ocean surface fragment preamble & body (Phase 2 §2.2, §5.1–§5.7):
+ * - Strict WebGL2 fragment sampler cap:
+ *     - `HB_OCEAN_FULL` (`#ifndef HB_LITE`, shared by High & Medium — zero compile on tier switch):
+ *       15/16 samplers: uSdf, uWake, uWakeLive, uZones, uNoise, uSkyBand, uPoolTex, uDynPoolTex,
+ *       uSeaShadow, uCloudShadowTex, uMirrorTex, uFftAtlas (sampler2DArray), uCapColor, uCapDepth, uCausticMap.
+ *     - `HB_LITE` (`#ifdef HB_LITE`, Low tier):
+ *       13/16 samplers: uSdf, uWake, uWakeLive, uZones, uNoise, uSkyBand, uPoolTex, uDynPoolTex,
+ *       uSeaShadow, uCloudShadowTex, uRipple, uCapColor, uCapDepth.
+ * - High/Med sample 3-cascade hardware-mipped `uFftAtlas` with bathymetric shoaling + shore-normal wave wrapping
+ *   (Snell approximation), LEAN/Toksvig slope variance (`fftSlopeVar`), persistent `RGBA16F` `WakeField` + target-centered
+ *   `RGBA16F` curved `WakeRibbons` (`uLiveBounds`), and FFT wave-Hessian Medium caustics (`uCausticMode == 1`).
+ * - Low keeps smooth 5-wave Gerstner + dual-scale `uRipple` + Voronoi caustics.
+ * - Strictly B07/C04 compliant (ascending `smoothstep` edges only, squaring by multiplication).
  */
 export const OCEAN_SURFACE = /* glsl */ `
 uniform float uTime, uNight;
@@ -34,26 +41,32 @@ uniform vec4 uSea;
 uniform vec4 uSdfBounds;
 uniform sampler2D uSdf;
 uniform sampler2D uWake, uWakeLive;
-uniform vec4 uWakeBounds;
-uniform sampler2D uZones;     // P6 D18 sea zones: R shoals, G far ports, B harbour waters, A the roads (zone-mask.ts)
-uniform sampler2D uNoise, uRipple;
+uniform vec4 uWakeBounds, uLiveBounds;
+uniform float uWakeRgba, uRibbonsOn;
+uniform sampler2D uZones;
+uniform sampler2D uNoise;
+#ifdef HB_LITE
+uniform sampler2D uRipple;
+#else
+uniform sampler2D uMirrorTex;
+uniform mat4 uPlanarVP;
+uniform vec4 uMirror;
+uniform float uReflectMode;
+uniform sampler2D uCausticMap;
+#endif
 uniform vec3 uAbyss, uDeep, uMid, uShallow, uShoal, uSunlitShoal, uFoamCol, uFoamNight;
-// sky (shared from the sky service)
 uniform sampler2D uSkyBand;
 uniform vec4 uSkyBandRange;
 uniform float uFwdAz, uHorizonDist, uHorizonDepr;
 uniform vec3 uGlintDir, uGlintCol;
-uniform vec4 uWeatherSea;     // cover, wind, wind dir x, wind dir z
-uniform vec2 uPrecip;         // rain, snow intensity (weather director)
-uniform vec4 uGust;           // F-wind gust field: dir x, dir z, DEWS strength, time (weather/gust.ts)
+uniform vec4 uWeatherSea;
+uniform vec2 uPrecip;
+uniform vec4 uGust;
 ${GUST_GLSL}
-// beam (shared from the beam system)
 uniform vec3 uBeamPos, uBeamCol;
 uniform float uBeamAngle;
-uniform vec4 uBeamShape;
-uniform vec4 uBeamSun;     // 05-P2 heliograph: rgb sun × mirror × gain (0 by night / overcast), w landing distance
+uniform vec4 uBeamShape, uBeamSun;
 uniform float uDebug;
-// town lights (lights system's top-down pool RT): reflected in the water at night
 uniform sampler2D uPoolTex;
 uniform vec4 uPoolBounds;
 uniform sampler2D uDynPoolTex;
@@ -64,14 +77,14 @@ uniform float uNightGlintCount;
 uniform float uWindowGlow, uLampArrive;
 uniform vec2 uSceneCenter;
 uniform float uSceneRadius;
-uniform sampler2D uCapColor, uCapDepth, uCausticMap;
+uniform sampler2D uCapColor, uCapDepth;
 uniform float uCapReady, uCausticMode;
 uniform vec2 uCapNearFar, uCapSize;
 uniform mat4 uCapInvVP;
 uniform vec4 uCausticBounds;
 varying vec3 vWorld;
 varying float vDamp;
-${wavesGLSL()}
+${OCEAN_DISP_GLSL}
 ${waveHessianGLSL()}
 ${CLOUD_SHADOW_GLSL}
 ${SEA_TONE_GLSL}
@@ -84,15 +97,12 @@ const vec2 SWELL = vec2(${SWELL_DIR[0].toFixed(5)}, ${SWELL_DIR[1].toFixed(5)});
 float hbLinearDepth(float d, vec2 nf) {
   return (2.0 * nf.x * nf.y) / max(nf.y + nf.x - (d * 2.0 - 1.0) * (nf.y - nf.x), 1e-4);
 }
-
 vec3 band(float th, float e, float lod) {
   vec2 uv = vec2((th - uSkyBandRange.x) / (uSkyBandRange.y - uSkyBandRange.x), (e - uSkyBandRange.z) / (uSkyBandRange.w - uSkyBandRange.z));
   vec3 c = textureLod(uSkyBand, clamp(uv, vec2(0.002), vec2(0.998)), lod).rgb;
-  // above the band: continue to the zenith
   return mix(c, uZenith, smoothstep(uSkyBandRange.w - 2.0, uSkyBandRange.w + 18.0, e));
 }
 float wrapPi(float a) { return atan(sin(a), cos(a)); }
-// rain on the water: dual-scale AA ripples (1.35 m & 2.15 m, rotated lattices) avoiding grid donuts
 vec3 rainRings(vec2 xz, float t, float fp) {
   vec3 acc = vec3(0.0);
   mat2 rRot = mat2(0.60, 0.80, -0.80, 0.60);
@@ -118,7 +128,6 @@ vec3 rainRings(vec2 xz, float t, float fp) {
   }
   return acc;
 }
-// anti-aliased thin network where two drifting fields cross (caustics on the bed, lace in the foam)
 float hbNet(float a, float b, float w) {
   float d = a - b;
   float fw = fwidth(d) + 1e-4;
@@ -130,14 +139,12 @@ void main() {
   vec2 dx = dFdx(xz), dy = dFdy(xz);
   vec3 toCam = uCameraPos - vWorld;
   float camD = length(toCam.xz);
-  // depth along the view: the backdrop is a flat card, so the haze line must be straight too
   float fwdD = dot(-toCam.xz, vec2(sin(uFwdAz), -cos(uFwdAz)));
   vec3 V = normalize(toCam);
   float t = uTime;
   float wind = uWeatherSea.y;
   vec2 wdir = normalize(uWeatherSea.zw + 1e-4);
 
-  // ---------------------------------------------------------------- fields
   vec2 suv = (xz - uSdfBounds.xy) / (uSdfBounds.zw - uSdfBounds.xy);
   vec2 edge2 = min(suv, 1.0 - suv);
   float inside = smoothstep(0.0, 0.03, min(edge2.x, edge2.y));
@@ -147,25 +154,49 @@ void main() {
   float depth = mix(40.0, sdf.g * 40.0, inside);
   float sdist = mix(16.0, sdf.b * 16.0, inside);
   vec4 zm = texture2D(uZones, clamp(suv, 0.0, 1.0)) * inside;
+
   vec2 wuv = (xz - uWakeBounds.xy) / (uWakeBounds.zw - uWakeBounds.xy);
   vec2 wedge = min(wuv, 1.0 - wuv);
   float winside = step(0.0, min(wedge.x, wedge.y));
-  float trail = texture2D(uWake, wuv).r * winside;
-  vec4 live = texture2D(uWakeLive, wuv) * winside;
-  // §6.1.5 SDF mip-2 shoreline outward normal (smooths 8-bit quantization) for exposure surf & Shoals wrapping
+  vec4 wakeS = texture2D(uWake, clamp(wuv, 0.0, 1.0)) * winside;
+  float trail = wakeS.r;
+  float jacFoam = 0.0;
+  float ribChurn = 0.0;
+  float kelH = 0.0;
+  vec4 live;
+  vec2 liveUv = wuv;
+  vec2 liveSpan = uWakeBounds.zw - uWakeBounds.xy;
+  #ifdef HB_LITE
+  live = texture2D(uWakeLive, clamp(wuv, 0.0, 1.0)) * winside;
+  float slick = live.a;
+  float hullOcc = min(live.b, 1.0);
+  #else
+  float statSlick = uWakeRgba > 0.5 ? wakeS.b : 0.0;
+  float statOcc = uWakeRgba > 0.5 ? wakeS.a : 0.0;
+  jacFoam = uWakeRgba > 0.5 ? wakeS.g : 0.0;
+  if (uRibbonsOn > 0.5) {
+    liveSpan = max(uLiveBounds.zw - uLiveBounds.xy, vec2(1.0));
+    liveUv = (xz - uLiveBounds.xy) / liveSpan;
+    vec2 re = min(liveUv, 1.0 - liveUv);
+    float rIn = smoothstep(0.0, 0.03, min(re.x, re.y));
+    vec4 rib = textureLod(uWakeLive, clamp(liveUv, 0.0, 1.0), 0.0) * rIn;
+    ribChurn = rib.g;
+    kelH = rib.a;
+    live = vec4(rib.r, jacFoam, max(statOcc, rib.b), statSlick);
+  } else {
+    vec4 rawL = texture2D(uWakeLive, clamp(wuv, 0.0, 1.0)) * winside;
+    live = uWakeRgba > 0.5 ? vec4(rawL.r, max(rawL.g, jacFoam), max(statOcc, rawL.b), max(statSlick, rawL.a)) : rawL;
+  }
+  float slick = live.a;
+  float hullOcc = min(live.b, 1.0);
+  #endif
+
   vec2 shoreN = vec2(0.0);
   float shoreExp = 0.85;
   #ifndef HB_LITE
-  if (coast < 28.0 && inside > 0.0) {
-    const float eS = 0.004;
-    float sPx = textureLod(uSdf, clamp(suv + vec2(eS, 0.0), 0.0, 1.0), 2.0).r;
-    float sMx = textureLod(uSdf, clamp(suv - vec2(eS, 0.0), 0.0, 1.0), 2.0).r;
-    float sPz = textureLod(uSdf, clamp(suv + vec2(0.0, eS), 0.0, 1.0), 2.0).r;
-    float sMz = textureLod(uSdf, clamp(suv - vec2(0.0, eS), 0.0, 1.0), 2.0).r;
-    vec2 sg = vec2(sPx - sMx, sPz - sMz);
-    float sgL = length(sg);
-    if (sgL > 1e-4) {
-      shoreN = sg / sgL;
+  if (coast < 56.0 && inside > 0.5) {
+    shoreN = hbShoreNormal(uSdf, suv, coast, inside);
+    if (length(shoreN) > 1e-4) {
       vec2 waveIn = normalize(mix(SWELL, wdir, 0.35 * wind));
       shoreExp = mix(0.45, 1.25, smoothstep(-0.65, 0.65, dot(shoreN, -waveIn)));
     }
@@ -176,32 +207,24 @@ void main() {
   vec4 nB = texture2D(uNoise, xz * 0.017 + t * vec2(0.0035, -0.0026));
   vec4 nC = texture2D(uNoise, xz * 0.093 + t * vec2(0.012, 0.004));
 
-  // cat's paws (see above)
   vec2 pawUv = xz * 0.0019 - wdir * t * (0.004 + 0.012 * wind);
   float paws = smoothstep(0.38, 0.7, texture2D(uNoise, pawUv).g * 0.7 + texture2D(uNoise, pawUv * 2.7 + 0.3).b * 0.45);
   paws = max(paws, hbGust(xz, uGust.w, uGust.xy) * (0.55 + 0.45 * uGust.z));
   paws = mix(paws, 0.35, uNight * 0.60);
   float rough = mix(0.35, 1.0, paws) * (0.75 + 0.5 * wind);
-  // a rain-pitted sea loses its mirror
   rough *= 1.0 + 0.6 * uPrecip.x;
   float windSea = smoothstep(0.6, 1.0, wind);
   float storm = smoothstep(0.3, 0.85, uSea.x);
-  // a storm's sea: the declared sea state or a gale (DEWS Warning/Danger wind), whichever is rougher
   float stormSea = max(storm, windSea);
-  // relax inner-basin shelter in gales (0.30 calm -> 0.14 gale) so storm basins churn visibly
   rough *= (1.0 - mix(0.30, 0.14, stormSea) * zm.b) * (1.0 + 0.3 * zm.a);
-  float slick = live.a;
   rough *= 1.0 - 0.7 * slick;
 
-  // ---------------------------------------------------------------- normals
   float far01 = smoothstep(250.0, 1300.0, camD);
   float fp = length(fwidth(xz));
   float amp = uSea.x * vDamp;
-  // §6.1.1 mild ±2.4 m crest-tangent group warp preserves coherent Gerstner wave trains (eliminates carpet static)
   vec2 swellTan = vec2(-SWELL.y, SWELL.x);
   vec2 xzw = xz + (swellTan * ((nA.g - 0.5) * 4.8 + (nB.b - 0.5) * 1.4) + SWELL * ((nA.b - 0.5) * 1.3)) * (0.35 + 0.65 * vDamp);
   float groups = 0.55 + 0.82 * smoothstep(0.18, 0.82, nA.r * 0.7 + texture2D(uNoise, xz * 0.0011 + vec2(t * 0.0009, 0.0)).b * 0.5);
-  // restrained swell-normal exaggeration: calm/moderate seas stay silky and faceted; a storm sea gets the full heave back
   float shadeCap = mix(0.76, 1.0, stormSea);
   float ampShade = shadeCap * (1.0 - exp(-amp * mix(mix(1.75, 1.25, far01), mix(2.6, 2.0, far01), stormSea) / shadeCap));
   vec3 gS; float crestH;
@@ -211,35 +234,79 @@ void main() {
   mat2 rot2 = mat2(0.54, 0.84, -0.84, 0.54);
   float sp = 0.6 + 1.2 * wind;
   vec2 wPerp = vec2(-wdir.y, wdir.x);
-  vec4 r1 = texture2D(uRipple, xz * 0.043 + wdir * t * 0.010 * sp);
-  #ifdef HB_LITE
-  vec4 r2 = texture2D(uRipple, (rot * rot * xz) * 0.0093 + wdir * t * 0.0025);
-  vec4 r3 = r2;                    // (Lite: the coarse tap stands in for the coarse ripple downstream)
-  vec2 d1 = r1.rg * 2.0 - 1.0, d2 = r2.rg * 2.0 - 1.0, d3 = d2;
-  #else
-  vec4 r2 = texture2D(uRipple, (rot2 * xz) * 0.118 - wPerp * t * 0.015 * sp);
-  vec4 r3 = texture2D(uRipple, (rot * rot * xz) * 0.0115 + (nA.rg - 0.5) * 0.14 + wdir * t * 0.0028);
-  vec4 r4 = texture2D(uRipple, (rot2 * xz.yx) * 0.0068 - wdir * t * 0.0019 + 0.37);
-  r3 = mix(r3, r4, 0.5 + 0.35 * (nA.r - 0.5) * 2.0);
-  vec2 d1 = r1.rg * 2.0 - 1.0, d2 = r2.rg * 2.0 - 1.0, d3 = r3.rg * 2.0 - 1.0;
-  #endif
-  // intermediate non-collinear gravity chop + close-range micro-ripple capillary facets
   float graze = smoothstep(0.14, 0.42, max(V.y, 0.0));
   float grazeDamp = 0.35 + 0.65 * graze;
   float shoreCalm = mix(0.55, 1.0, smoothstep(1.0, 14.0, coast)) * (1.0 - mix(0.22, 0.08, stormSea) * zm.b);
   float dk = (0.17 + 0.13 * uSea.y) * rough * shoreCalm;
-  // (full tier) 3 analytical dispersive medium-swell wavelets (λ = 12.5, 7.8, 4.9 m, ω = sqrt(g·k), Nyquist-filtered)
-  vec2 dM = vec2(0.0);
-  vec2 dFine = vec2(0.0);
-  vec2 dDisp = vec2(0.0);
-  float dispCrest = 0.0;
-  #ifndef HB_LITE
-  vec4 rM = texture2D(uRipple, (rot2 * rot * xz) * 0.0235 + (wdir * 0.55 + wPerp * 0.83) * t * 0.0062 * sp + 0.19);
-  dM = rM.rg * 2.0 - 1.0;
-  {
+
+  vec2 dnWave = vec2(0.0);
+  vec2 dnFine = vec2(0.0);
+  vec2 spSlope = vec2(0.0);
+  float organicCrest = 0.0;
+  float fftSlopeVar = 0.0;
+  float fftDispY = 0.0;
+  float fftJMin = 1.0;
+  float ripTw = 0.5;
+  float ripMicro = 0.5;
+  float ripMoon = 0.5;
+  float ripCell = 0.5;
+
+  #ifdef HB_LITE
+  vec4 r1 = texture2D(uRipple, xz * 0.043 + wdir * t * 0.010 * sp);
+  vec4 r2 = texture2D(uRipple, (rot * rot * xz) * 0.0093 + wdir * t * 0.0025);
+  vec2 d1 = r1.rg * 2.0 - 1.0, d2 = r2.rg * 2.0 - 1.0;
+  dnWave = (d1 * (0.76 - far01 * 0.48) * (0.65 + 0.35 * graze) + d2 * (0.58 + 0.38 * far01)) * dk;
+  spSlope = d1 * (0.85 - far01 * 0.4) * 0.44;
+  organicCrest = clamp(crestH * 0.68 * groups + (r2.a - 0.5) * 0.32, -1.0, 1.0);
+  ripTw = r2.a * 0.6 + r1.a * 0.4;
+  ripMicro = r1.a * 0.65 + r2.a * 0.35;
+  ripMoon = r1.a * 0.45 + r2.a * 0.35 + nB.g * 0.25;
+  ripCell = r1.b * 0.65 + r2.b * 0.55;
+  #else
+  vec2 xzShoal;
+  float shoalK;
+  hbShoalCoords(xz, depth, coast, shoreN, xzShoal, shoalK);
+  vec2 dxS = dFdx(xzShoal), dyS = dFdy(xzShoal);
+  if (uFftOn > 0.5) {
+    float c0Sc = uFftScales.x, c1Sc = uFftScales.y, c2Sc = uFftScales.z;
+    float shoreDamp = vDamp * smoothstep(0.0, 2.4, max(coast, 0.0));
+    float steepBoost = mix(1.0, 1.32, shoalK);
+    float w0f = uFftWeights.x * mix(0.45, 1.0, shoreDamp) * steepBoost;
+    float w1f = uFftWeights.y * mix(0.42, 1.0, shoreCalm) * mix(0.65, 1.0, rough) * steepBoost * (1.0 - smoothstep(420.0, 1550.0, camD));
+    float w2f = uFftWeights.z * mix(0.46, 1.0, shoreCalm) * mix(0.58, 1.15, rough) * (1.0 - smoothstep(130.0, 420.0, camD));
+    vec4 d0 = textureGrad(uFftAtlas, vec3(xzShoal * c0Sc, 0.0), dxS * c0Sc, dyS * c0Sc);
+    vec4 d1 = textureGrad(uFftAtlas, vec3(xzShoal * c1Sc, 1.0), dxS * c1Sc, dyS * c1Sc);
+    vec4 d2 = textureGrad(uFftAtlas, vec3(xz * c2Sc, 2.0), dx * c2Sc, dy * c2Sc);
+    vec4 s0 = textureGrad(uFftAtlas, vec3(xzShoal * c0Sc, 3.0), dxS * c0Sc, dyS * c0Sc);
+    vec4 s1 = textureGrad(uFftAtlas, vec3(xzShoal * c1Sc, 4.0), dxS * c1Sc, dyS * c1Sc);
+    vec4 s2 = textureGrad(uFftAtlas, vec3(xz * c2Sc, 5.0), dx * c2Sc, dy * c2Sc);
+    float sw0Ph = ${f6(w0.k)} * dot(vec2(${f6(w0.dirX)}, ${f6(w0.dirZ)}), xzShoal) - ${f6(w0.w)} * t;
+    float sw0Gain = ampShade * uFftWeights.w * mix(1.0, 1.24, shoalK);
+    vec2 w0Slope = vec2(${f6(w0.dirX * w0.k * w0.amp)}, ${f6(w0.dirZ * w0.k * w0.amp)}) * cos(sw0Ph) * sw0Gain;
+    vec2 sMacro = s0.xy * w0f + w0Slope;
+    vec2 sMid = s1.xy * w1f;
+    vec2 sFine = s2.xy * w2f;
+    float slopeGain = mix(0.85, 1.12, stormSea);
+    gN = normalize(vec3(-sMacro.x * slopeGain, 1.0, -sMacro.y * slopeGain));
+    dnWave = -sMid * slopeGain * (0.65 + 0.35 * graze);
+    dnFine = -sFine * slopeGain * grazeDamp;
+    spSlope = -(sMid * 0.65 + sFine * 1.15) * slopeGain;
+    float v0 = max(s0.a - dot(s0.xy, s0.xy), 0.0) * w0f * w0f;
+    float v1 = max(s1.a - dot(s1.xy, s1.xy), 0.0) * w1f * w1f;
+    float v2 = max(s2.a - dot(s2.xy, s2.xy), 0.0) * w2f * w2f;
+    fftSlopeVar = clamp(v0 + v1 + v2, 0.0, 0.65);
+    fftDispY = (d0.y * w0f + d1.y * w1f + d2.y * w2f) + sin(sw0Ph) * ${f6(w0.amp)} * amp * uFftWeights.w;
+    fftJMin = min(d0.a, min(mix(1.0, d1.a, clamp(w1f, 0.0, 1.0)), mix(1.0, d2.a, clamp(w2f, 0.0, 1.0))));
+    float fftCurv = clamp((s1.b * w1f + s2.b * w2f) * 0.45, -1.0, 1.0);
+    organicCrest = clamp(fftDispY * 0.72 + (1.0 - clamp(fftJMin, 0.0, 1.0)) * 0.55 + fftCurv * 0.25, -1.0, 1.0);
+    float nFine = texture2D(uNoise, (rot2 * xz) * 0.14 - wPerp * t * 0.015 * sp).r;
+    ripTw = clamp(nC.a * 0.50 + nFine * 0.35 + max(fftCurv, 0.0) * 0.30, 0.0, 1.0);
+    ripMicro = clamp(nB.g * 0.45 + nFine * 0.35 + (0.5 + 0.5 * fftCurv) * 0.25, 0.0, 1.0);
+    ripMoon = clamp(nB.g * 0.42 + nC.a * 0.32 + (0.5 + 0.5 * fftCurv) * 0.30, 0.0, 1.0);
+    ripCell = clamp(nB.a * 0.55 + nC.g * 0.50 + max(0.0, 0.75 - fftJMin) * 0.45, 0.0, 1.0);
+  } else {
     vec2 swBase = normalize(mix(SWELL, wdir, 0.30));
     vec2 swSide = vec2(-swBase.y, swBase.x);
-    // fanned +31 deg, -42 deg, +53 deg around primary swell/wind; deep-water dispersion ω = sqrt(9.81 * k)
     vec2 wd1 = swBase * 0.8572 + swSide * 0.5150;
     vec2 wd2 = swBase * 0.7431 - swSide * 0.6691;
     vec2 wd3 = swBase * 0.6018 + swSide * 0.7986;
@@ -251,44 +318,38 @@ void main() {
     float p2 = k2 * dot(wd2, xzw) - 2.8111 * t + 1.7;
     float p3 = k3 * dot(wd3, xzw) - 3.5467 * t + 3.4;
     float dispK = (0.55 + 0.55 * uSea.y + 0.45 * stormSea) * mix(0.42, 1.0, rough) * mix(0.45, 1.0, shoreCalm);
-    dDisp = (-wd1 * (cos(p1) * 0.068 * nyq1) - wd2 * (cos(p2) * 0.056 * nyq2) - wd3 * (cos(p3) * 0.044 * nyq3)) * dispK;
-    dispCrest = (sin(p1) * 0.45 * nyq1 + sin(p2) * 0.35 * nyq2 + sin(p3) * 0.25 * nyq3) * mix(0.4, 1.0, shoreCalm);
-    // subtle shoaling refraction of wave facets wrapping around Shoals rocks
-    float refK = (1.0 - smoothstep(1.0, 22.0, max(coast, 0.0))) * smoothstep(0.15, 0.6, zm.r);
-    if (refK > 0.01 && dot(shoreN, shoreN) > 0.5) {
-      float rPh = coast * 0.52 - hbSwellPhase(xz, t);
-      dDisp += shoreN * (-cos(rPh) * 0.08 * refK * nyq1);
-    }
-  }
-  float fineVis = (1.0 - smoothstep(0.05, 0.17, fp)) * (1.0 - smoothstep(95.0, 270.0, camD)) * grazeDamp;
-  if (fineVis > 0.01) {
-    vec4 rF = texture2D(uRipple, (rot * xz.yx) * 0.23 - (wdir * 0.72 - wPerp * 0.69) * t * 0.024 * sp + 0.53);
-    dFine = (rF.rg * 2.0 - 1.0) * fineVis;
+    vec2 dDisp = (-wd1 * (cos(p1) * 0.068 * nyq1) - wd2 * (cos(p2) * 0.056 * nyq2) - wd3 * (cos(p3) * 0.044 * nyq3)) * dispK;
+    float dispCrest = (sin(p1) * 0.45 * nyq1 + sin(p2) * 0.35 * nyq2 + sin(p3) * 0.25 * nyq3) * mix(0.4, 1.0, shoreCalm);
+    vec2 nGrad = (texture2D(uNoise, xz * 0.043 + wdir * t * 0.010 * sp).rg * 2.0 - 1.0) * 0.48
+               + (texture2D(uNoise, (rot2 * xz) * 0.118 - wPerp * t * 0.015 * sp).rg * 2.0 - 1.0) * 0.32 * grazeDamp;
+    dnWave = nGrad * dk + dDisp;
+    dnFine = (nC.rg * 2.0 - 1.0) * 0.18 * dk * grazeDamp;
+    spSlope = nGrad * 0.55 + dDisp * 0.85;
+    organicCrest = clamp(crestH * 0.58 * groups + dispCrest * 0.42 + (nB.g - 0.5) * 0.30, -1.0, 1.0);
+    ripTw = nC.a * 0.6 + nB.a * 0.4;
+    ripMicro = nB.g * 0.55 + nC.a * 0.45;
+    ripMoon = nB.g * 0.45 + nC.a * 0.35 + nA.b * 0.20;
+    ripCell = nB.a * 0.6 + nC.g * 0.5;
   }
   #endif
-  // separate resolved medium wave trains (dnWave) from fine close-up capillary detail (dnFine)
-  #ifdef HB_LITE
-  float midCap = 0.0;
-  #else
-  float midCap = max((1.0 - smoothstep(110.0, 380.0, camD)) * (1.0 - smoothstep(0.09, 0.26, fp)) * grazeDamp, stormSea * (1.0 - far01));
-  #endif
-  vec2 dnWave = (d1 * (0.76 - far01 * 0.48) * (0.65 + 0.35 * graze) + dM * (0.66 - 0.22 * far01) + d3 * (0.58 + 0.38 * far01)) * dk + dDisp;
-  vec2 dnFine = (d2 * mix(0.46, 0.75, stormSea) * midCap + dFine * 0.22) * dk;
+
   vec2 dn = dnWave + dnFine;
-  float organicCrest = clamp(crestH * 0.54 * groups + dispCrest * 0.40 + (r3.a - 0.5) * 0.50 + (nB.g - 0.5) * 0.36, -1.0, 1.0);
-  // §6.2.1 directional Kelvin wave-slope normals (2-tap finite difference of uWakeLive.r, gated inside live.r > 0.01)
   vec2 kelSlope = vec2(0.0);
   #ifndef HB_LITE
-  if (live.r > 0.01) {
-    vec2 wkStep = vec2(0.9) / (uWakeBounds.zw - uWakeBounds.xy);
-    float rx = textureLod(uWakeLive, wuv + vec2(wkStep.x, 0.0), 0.0).r;
-    float rz = textureLod(uWakeLive, wuv + vec2(0.0, wkStep.y), 0.0).r;
+  if (uRibbonsOn > 0.5 && (abs(kelH) > 0.004 || live.r > 0.01)) {
+    vec2 wkStep = vec2(0.85) / liveSpan;
+    float hx = textureLod(uWakeLive, clamp(liveUv + vec2(wkStep.x, 0.0), 0.0, 1.0), 0.0).a;
+    float hz2 = textureLod(uWakeLive, clamp(liveUv + vec2(0.0, wkStep.y), 0.0, 1.0), 0.0).a;
+    kelSlope = clamp(-vec2(hx - kelH, hz2 - kelH) * 2.2, vec2(-0.62), vec2(0.62)) * (1.0 - smoothstep(1.2, 3.2, fp));
+  } else if (live.r > 0.01) {
+    vec2 wkStep = vec2(0.9) / liveSpan;
+    float rx = textureLod(uWakeLive, clamp(liveUv + vec2(wkStep.x, 0.0), 0.0, 1.0), 0.0).r;
+    float rz = textureLod(uWakeLive, clamp(liveUv + vec2(0.0, wkStep.y), 0.0, 1.0), 0.0).r;
     kelSlope = clamp(-vec2(rx - live.r, rz - live.r) * 1.45, vec2(-0.55), vec2(0.55)) * (1.0 - smoothstep(1.2, 3.0, fp));
   }
   #endif
-  // wakes rough up the surface and tilt normals along directional Kelvin V-arms
-  dn += (d2 - d1) * 0.25 * clamp(trail + live.r, 0.0, 1.0) + kelSlope;
-  // rain rings (and snowflakes landing): near the camera only, dual-scale AA ripples
+  dn += (nC.rg - 0.5) * 0.35 * clamp(trail + live.r, 0.0, 1.0) + kelSlope;
+
   float rainK = uPrecip.x * (1.0 - smoothstep(260.0, 680.0, camD)) * step(0.0, coast);
   float snowSpeck = 0.0;
   if (rainK + uPrecip.y > 0.01) {
@@ -297,15 +358,14 @@ void main() {
     snowSpeck = rr.z * uPrecip.y * (1.0 - smoothstep(300.0, 700.0, camD)) * step(0.0, coast);
   }
   vec3 N = normalize(vec3(gN.x + dn.x, gN.y, gN.z + dn.y));
-  vec2 spSlope = (d1 * (0.85 - far01 * 0.4) + d2 * 1.1 * midCap + dFine * 0.72 + dM * 0.55) * 0.44 + dDisp * 0.85 + kelSlope * 0.6;
-  vec3 Nsp = normalize(vec3(gN.x * 0.72 + spSlope.x, 1.0, gN.z * 0.72 + spSlope.y)); // crisp capillary facets for sparkle
+  vec3 Nsp = normalize(vec3(gN.x * 0.72 + spSlope.x + kelSlope.x * 0.6, 1.0, gN.z * 0.72 + spSlope.y + kelSlope.y * 0.6));
   float unres = smoothstep(0.35, 1.10, fp);
   #ifdef HB_LITE
   unres = 1.0;
   float spread = 0.3 * fp * fp;
   #else
   float nVar = clamp(dot(dFdx(N), dFdx(N)) + dot(dFdy(N), dFdy(N)), 0.0, 0.35);
-  float spread = nVar * 0.55 + 0.04 * fp * fp;
+  float spread = nVar * 0.55 + fftSlopeVar * 0.65 + 0.04 * fp * fp;
   #endif
 
   float quayWall = max(1.0 - smoothstep(1.2, 4.5, sdist), zm.b * (1.0 - smoothstep(2.0, 9.0, max(coast, 0.0)))) * (1.0 - zm.r);
@@ -326,9 +386,8 @@ void main() {
   body *= 1.0 - 0.24 * storm - 0.22 * cover;
   float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0) * (1.0 - uNight);
   float sunSh = hbSeaSunShadow(vec3(xz.x, 0.0, xz.y));
-  float shoalK = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * (1.0 - quayWall * 0.92) * sunUp * (1.0 - cover * 0.85) * (1.0 - storm * 0.72);
-  body = mix(body, uSunlitShoal, shoalK * (0.22 + 0.3 * smoothstep(0.3, 0.75, nA.b) + 0.1 * nC.g));
-  float hullOcc = min(live.b, 1.0);
+  float shoalKBody = (1.0 - smoothstep(0.3, 4.5, max(dep, depth))) * (1.0 - quayWall * 0.92) * sunUp * (1.0 - cover * 0.85) * (1.0 - storm * 0.72);
+  body = mix(body, uSunlitShoal, shoalKBody * (0.22 + 0.3 * smoothstep(0.3, 0.75, nA.b) + 0.1 * nC.g));
   vec3 causReef = vec3(0.0);
   float cSun = sunUp * (1.0 - cover * 0.75) * (1.0 - storm * 0.6) * sunSh;
   if (uCapReady <= 0.5) {
@@ -361,23 +420,15 @@ void main() {
       vec2 bedXZ = xz + refV.xz * (cDep / max(-refV.y, 0.25)) + dnWave * (0.35 + 0.42 * cDep);
       vec2 cUv1 = bedXZ * 0.054 + wdir * t * 0.013;
       vec2 cUv2 = (rot2 * bedXZ) * 0.082 - wPerp * t * 0.011 + 0.37;
+      #ifdef HB_LITE
       float v1 = textureGrad(uRipple, cUv1, dx * 0.054, dy * 0.054).b;
       float v2 = textureGrad(uRipple, cUv2, (rot2 * dx) * 0.082, (rot2 * dy) * 0.082).b;
+      #else
+      float v1 = textureGrad(uNoise, cUv1, dx * 0.054, dy * 0.054).b;
+      float v2 = textureGrad(uNoise, cUv2, (rot2 * dx) * 0.082, (rot2 * dy) * 0.082).b;
+      #endif
       float caus = clamp(v1 * v2 * 2.1 + (v1 * v1 + v2 * v2) * 0.28, 0.0, 1.5) * cs;
       causRgb = vec3(caus);
-      #ifndef HB_LITE
-      float dispK = (1.0 - smoothstep(120.0, 220.0, camD)) * smoothstep(0.25, 2.0, cDep);
-      if (dispK > 0.01) {
-        vec2 disp = (normalize(uSunDir.xz + 1e-4) * 0.0085 + dnWave * 0.014) * dispK;
-        float v1r = textureGrad(uRipple, cUv1 + disp, dx * 0.054, dy * 0.054).b;
-        float v1b = textureGrad(uRipple, cUv1 - disp, dx * 0.054, dy * 0.054).b;
-        float v2r = textureGrad(uRipple, cUv2 + rot2 * disp * 1.3, (rot2 * dx) * 0.082, (rot2 * dy) * 0.082).b;
-        float v2b = textureGrad(uRipple, cUv2 - rot2 * disp * 1.3, (rot2 * dx) * 0.082, (rot2 * dy) * 0.082).b;
-        float cR = clamp(v1r * v2r * 2.1 + (v1r * v1r + v2r * v2r) * 0.28, 0.0, 1.5) * cs;
-        float cB = clamp(v1b * v2b * 2.1 + (v1b * v1b + v2b * v2b) * 0.28, 0.0, 1.5) * cs;
-        causRgb = mix(causRgb, vec3(cR, caus, cB), 0.72);
-      }
-      #endif
     }
     causReef = cGain > 0.0 ? causRgb * (1.0 - hullOcc * 0.92) : vec3(0.0);
     seen *= 0.86 + 0.14 * smoothstep(0.35, 0.65, nC.g);
@@ -390,7 +441,6 @@ void main() {
   body = mix(body, preLift, quayWall * 0.82);
   body *= 1.0 - zm.b * (1.0 - smoothstep(1.0, 9.0, max(coast, 0.0))) * max(cover * 0.34, storm * 0.30) * (1.0 - uNight);
   if (uCapReady <= 0.5) {
-    float reefMask = smoothstep(0.08, 0.86, zm.r);
     float shelfNoise = nA.b * 0.48 + nB.g * 0.36 + nC.g * 0.16;
     float shoalDepth = max(0.30, min(depth, 0.55 + max(coast, 0.0) * 0.26) + (0.5 - shelfNoise) * 3.4);
     float ledgeProx = (1.0 - smoothstep(0.4, 11.5, max(coast, 0.0))) * smoothstep(0.14, 0.55, zm.r);
@@ -417,7 +467,8 @@ void main() {
   float quayOcc = (1.0 - smoothstep(0.0, 2.8, max(coast, 0.0))) * step(-0.5, coast) * (0.20 + 0.16 * zm.b);
   float pierOcc = (1.0 - smoothstep(0.0, 1.6, sdist)) * 0.22;
   body *= 1.0 - max(quayOcc, pierOcc);
-  body = mix(body, uShoal * 1.35 * mix(1.0, 0.45, uNight), clamp(trail * 0.25 + live.r * 0.38, 0.0, 0.35));
+  float churnTint = clamp(trail * 0.25 + live.r * 0.34 + ribChurn * 0.24 * (0.6 + 0.55 * nB.g), 0.0, 0.38);
+  body = mix(body, uSunlitShoal * 1.15 * mix(1.0, 0.42, uNight), churnTint);
   body *= (1.0 - hullOcc * 0.46) * (1.0 - 0.12 * slick);
   body = hbSeaGolden(body, sunSh, sunUp);
   body = hbSeaHour(body);
@@ -426,6 +477,9 @@ void main() {
   body *= bodyGain;
   body = mix(body, body * normalize(uAmbient + 1e-4) * 1.6, uNight * 0.6);
 
+  float dbgViewPath = 0.0;
+  vec3 dbgT = vec3(1.0);
+  float dbgCaus = 0.0;
   float refrMask = (1.0 - smoothstep(460.0, 550.0, length(xz - uSceneCenter))) * (1.0 - smoothstep(1350.0, 1750.0, camD));
   if (uCapReady > 0.5 && refrMask > 0.001) {
     vec3 deepScatter = body;
@@ -434,7 +488,6 @@ void main() {
     float d0 = textureLod(uCapDepth, screenUv, 0.0).r;
     float z0 = hbLinearDepth(d0, uCapNearFar);
     float rawD = d0 >= 0.9999 ? 40.0 : max(z0 - zW, 0.0);
-    // Project wave slope perturbation (N - up) into view space: zero constant bias on flat water (Neon #1)
     vec2 viewN = (mat3(viewMatrix) * vec3(N.x, N.y - 1.0, N.z)).xy;
     float refrScale = clamp(rawD * 0.032, 0.0, 0.055) * (1.0 - smoothstep(180.0, 620.0, camD));
     vec2 refrUv = clamp(screenUv + viewN * refrScale, vec2(0.002), vec2(0.998));
@@ -453,7 +506,6 @@ void main() {
     }
     float viewPath = validBed ? distance(vWorld, P_bed) : 40.0;
     if (viewPath > 75.0) validBed = false;
-    // Fetch the exact integer texel matching the validated NEAREST uCapDepth sample (zero bilinear foreground bleed, Astra #1)
     vec3 capRgb = deepScatter;
     if (validBed) {
       ivec2 capDim = textureSize(uCapColor, 0);
@@ -469,6 +521,8 @@ void main() {
     sigma = mix(sigma, vec3(0.28, 0.075, 0.062), zm.r);
     sigma *= 1.0 + 0.95 * storm + 0.35 * cover;
     vec3 T = exp(-optPath * sigma);
+    dbgViewPath = viewPath;
+    dbgT = T;
     vec3 causAdd = vec3(0.0);
     float cGate = sunUp * (1.0 - cover * 0.75) * (1.0 - storm * 0.6)
       * smoothstep(0.12, 0.65, vertDepth)
@@ -478,8 +532,6 @@ void main() {
       * (1.0 - hullOcc * 0.92);
     if (validBed && cGate > 0.001) {
       #ifdef HB_LITE
-      // Low tier skips SeaShadowMask (sun.test.ts contract): derive architectural shadow occlusion from
-      // captured bed irradiance (shadow-mapped stone/terrain) + shaded quay-side SDF gradient + clouds.
       float bedLum = dot(capRgb, vec3(0.2126, 0.7152, 0.0722));
       float ambLum = max(dot(uAmbient, vec3(0.2126, 0.7152, 0.0722)), 0.05);
       float litRatio = smoothstep(ambLum * 0.38, ambLum * 1.12, bedLum);
@@ -503,6 +555,13 @@ void main() {
         vec3 R_mean = refract(-uSunDir, vec3(0.0, 1.0, 0.0), 0.75);
         vec2 cXZ = P_bed.xz + R_mean.xz * ((-3.0 - P_bed.y) / min(R_mean.y, -0.15));
         vec3 causRgb = vec3(0.0);
+        #ifdef HB_LITE
+        vec2 vUv1 = P_bed.xz * 0.054 + wdir * t * 0.013;
+        vec2 vUv2 = (rot2 * P_bed.xz) * 0.082 - wPerp * t * 0.011 + 0.37;
+        float v1 = textureGrad(uRipple, vUv1, dx * 0.054, dy * 0.054).b;
+        float v2 = textureGrad(uRipple, vUv2, (rot2 * dx) * 0.082, (rot2 * dy) * 0.082).b;
+        causRgb = vec3(clamp(min(v1, v2) * 2.2, 0.0, 1.4));
+        #else
         float cIn = 0.0;
         if (uCausticMode > 1.5) {
           vec2 cuv = (cXZ - uCausticBounds.xy) / max(uCausticBounds.zw - uCausticBounds.xy, vec2(1.0));
@@ -520,25 +579,27 @@ void main() {
             }
           }
         }
-        if (uCausticMode > 0.5 && cIn < 0.999) {
-          float hScale = clamp(vertDepth, 0.6, 4.5) * (1.4 + 2.2 * amp);
-          float hess = -hbWaveHessian(cXZ, t, hScale);
-          float hConv = smoothstep(0.05, 0.55, max(hess, 0.0));
+        if (cIn < 0.999) {
+          float hConv = 0.0;
+          if (uFftOn > 0.5) {
+            float fc1 = textureLod(uFftAtlas, vec3(cXZ * uFftScales.y, 4.0), 0.0).b;
+            float fc2 = textureLod(uFftAtlas, vec3(cXZ * uFftScales.z, 5.0), 0.0).b;
+            float fHess = (fc1 * 0.55 + fc2 * 0.85) * clamp(vertDepth * 0.45, 0.35, 1.6);
+            hConv = smoothstep(0.04, 0.52, max(fHess, 0.0));
+          } else {
+            float hScale = clamp(vertDepth, 0.6, 4.5) * (1.4 + 2.2 * amp);
+            hConv = smoothstep(0.05, 0.55, max(-hbWaveHessian(cXZ, t, hScale), 0.0));
+          }
           vec2 rUv1 = cXZ * 0.058 + wdir * t * 0.013;
           vec2 rUv2 = (rot2 * cXZ) * 0.086 - wPerp * t * 0.011 + 0.37;
-          float s1 = textureGrad(uRipple, rUv1, dx * 0.058, dy * 0.058).b;
-          float s2 = textureGrad(uRipple, rUv2, (rot2 * dx) * 0.086, (rot2 * dy) * 0.086).b;
+          float s1 = textureGrad(uNoise, rUv1, dx * 0.058, dy * 0.058).b;
+          float s2 = textureGrad(uNoise, rUv2, (rot2 * dx) * 0.086, (rot2 * dy) * 0.086).b;
           float rShim = min(s1, s2) * 1.45 + s1 * s2 * 0.95;
-          vec3 hessRgb = vec3(clamp(hConv * (0.55 + 0.85 * rShim) + rShim * 0.35, 0.0, 1.5));
+          vec3 hessRgb = vec3(clamp(hConv * (0.65 + 0.90 * rShim) + rShim * 0.25, 0.0, 1.5));
           causRgb = mix(hessRgb, causRgb, cIn);
-        } else if (uCausticMode <= 0.5) {
-          vec2 vUv1 = P_bed.xz * 0.054 + wdir * t * 0.013;
-          vec2 vUv2 = (rot2 * P_bed.xz) * 0.082 - wPerp * t * 0.011 + 0.37;
-          float v1 = textureGrad(uRipple, vUv1, dx * 0.054, dy * 0.054).b;
-          float v2 = textureGrad(uRipple, vUv2, (rot2 * dx) * 0.082, (rot2 * dy) * 0.082).b;
-          causRgb = vec3(clamp(min(v1, v2) * 2.2, 0.0, 1.4));
         }
-        // Single downwelling sun leg (T already carries 0.65 * sunPath + viewPath, Opus #4 / Neon #6)
+        #endif
+        dbgCaus = causRgb.g;
         causAdd = uSunColor * causRgb * 0.52 * cVis;
       }
     }

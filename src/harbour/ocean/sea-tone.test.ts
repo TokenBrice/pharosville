@@ -236,7 +236,8 @@ describe("E11 the hour on the water", () => {
     expect(SEA_TONE_GLSL).toContain("return mix(vec3(dot(body, vec3(0.2126, 0.7152, 0.0722))), body, uSeaHour.a);");
     expect(OCEAN_FRAG).toContain("body = hbSeaGolden(body, sunSh, sunUp);\n  body = hbSeaHour(body);");
     expect(OCEAN_FRAG).toContain("body = hbSeaHour(body);\n  // day/night exposure of the unlit tint");
-    expect(OCEAN_FRAG).toContain("F = max(F, uSeaLow.y * zm.b);\n  F *= 1.0 - 0.55 * hullOcc;\n  vec3 col = body * (1.0 - F) + sky * F;");
+    expect(OCEAN_FRAG).toContain("F = max(F, uSeaLow.y * zm.b);\n  F *= 1.0 - 0.55 * hullOcc;");
+    expect(OCEAN_FRAG).toContain("vec3 col = body * (1.0 - F_eff) + reflEnv * F_eff;");
     const sys = readFileSync(resolve(__dirname, "ocean-system.ts"), "utf8");
     expect(sys).toContain("s.hour = 12; s.apply(this.noonU);");
     expect(sys).toContain("s.hour = tod.hour; s.apply(this.hourU);");
@@ -300,16 +301,16 @@ describe("E13 glints the pixel can hold", () => {
   it("widens every sun and moon glint lobe by footprint, melts the spark masks on ascending ramps, then caps", () => {
     expect(SEA_TONE_GLSL).toContain("float m = n / (1.0 + n * spread);\n  return pow(c, m) * ((m + 2.0) / (n + 2.0));");
     expect(SEA_TONE_GLSL).toContain("return glint * min(1.0, max(0.85 * uBloomT - base, 0.0) / max(g, 1e-4));");
-    expect(OCEAN_FRAG).toContain("float unres = smoothstep(0.35, 1.10, fp);\n  #ifdef HB_LITE\n  unres = 1.0;\n  float spread = 0.3 * fp * fp;\n  #else\n  float nVar = clamp(dot(dFdx(N), dFdx(N)) + dot(dFdy(N), dFdy(N)), 0.0, 0.35);\n  float spread = nVar * 0.55 + 0.04 * fp * fp;\n  #endif");
+    expect(OCEAN_FRAG).toContain("float unres = smoothstep(0.35, 1.10, fp);\n  #ifdef HB_LITE\n  unres = 1.0;\n  float spread = 0.3 * fp * fp;\n  #else\n  float nVar = clamp(dot(dFdx(N), dFdx(N)) + dot(dFdy(N), dFdy(N)), 0.0, 0.35);\n  float spread = nVar * 0.55 + fftSlopeVar * 0.65 + 0.04 * fp * fp;\n  #endif");
     // the Low tier never pays more: its glints read the calm normals only and the column drops its twinkling facets
-    expect(OCEAN_FRAG).toContain("#ifdef HB_LITE\n  sparks = 0.0;\n  #endif");
+    expect(OCEAN_FRAG).toContain("#ifdef HB_LITE\n  float sparks = 0.0;");
     expect(OCEAN_FRAG).toContain("float aa = unres;");
-    expect(OCEAN_FRAG).toContain("float sparks = min(hbLobe(rs, 300.0, 4.0 * spread) * 3.6 + hbLobe(rsp, 1100.0, 4.0 * spread) * 8.0, 2.4)");
+    expect(OCEAN_FRAG).toContain("float sparks = (uFftOn > 0.5 ? ggxSpec * 1.15 : min(hbLobe(rs, 300.0, 4.0 * spread) * 3.2 + hbLobe(rsp, 1100.0, 4.0 * spread) * 7.2, 2.4))");
     expect(OCEAN_FRAG).toContain("float rs = mix(max(dot(R, uGlintDir), 0.0), rsE, unres);");
     expect(OCEAN_FRAG).toContain("float rsp = mix(max(dot(reflect(vd, Nsp), uGlintDir), 0.0), rsE, unres);");
     expect(OCEAN_FRAG).toContain("float nhF = mix(max(dot(Nsp, Hs), 0.0), max(dot(gN, Hs), 0.0), unres);");
     expect(OCEAN_FRAG).toContain("float facet = hbLobe(nhF, 1400.0, spread) * mix(smoothstep(0.5, 0.8, nB.a), 0.2, aa)");
-    expect(OCEAN_FRAG).toContain("float tw = mix(smoothstep(0.8, 0.97, r2.a * 0.6 + r1.a * 0.4 + 0.22 * sin(t * 1.3 + nC.a * 30.0)), 0.03, aa);");
+    expect(OCEAN_FRAG).toContain("float tw = mix(smoothstep(0.8, 0.97, ripTw + 0.22 * sin(t * 1.3 + nC.a * 30.0)), 0.03, aa);");
     expect(OCEAN_FRAG).toContain("float sparkMask = mix(smoothstep(0.45, 0.85, nC.a + 0.25 * nB.b), 0.45, aa);");
     expect(OCEAN_FRAG).toContain("float dense = hbLobe(nh, 380.0, spread)");
     expect(OCEAN_FRAG).toContain("glint = hbHelioGlint(glint, hbHelioCoin(rel), nhF, nB.a, sparkMask, far01, spread);");

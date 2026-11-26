@@ -296,7 +296,9 @@ export class SceneCapture {
       // Restore source FIRST (Three.js r186 setRenderTarget binds gl.FRAMEBUFFER, affecting both READ and DRAW
       // while updating only FRAMEBUFFER/DRAW cache entries), THEN unbind READ and restore scissor state via Three.
       renderer.setRenderTarget(source);
-      renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+      if ((renderer.state.bindFramebuffer(gl.READ_FRAMEBUFFER, null) as unknown as boolean | undefined) === false) {
+        gl.bindFramebuffer?.(gl.READ_FRAMEBUFFER, null);
+      }
       if (typeof renderer.state.setScissorTest === "function") renderer.state.setScissorTest(wasScissor);
       else if (wasScissor) gl.enable(gl.SCISSOR_TEST);
       else gl.disable(gl.SCISSOR_TEST);
