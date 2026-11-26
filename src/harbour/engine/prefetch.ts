@@ -85,6 +85,7 @@ export function prefetchHarbour(assets: AssetStore, initialTier: QualityTier = "
         if (initialTier === "high" && extraEnabled("planar")) void import("../ocean/planar-mirror").catch(() => {});
         else void import("../ocean/hiz-ssr").catch(() => {});
       }
+      if (extraEnabled("spray")) void import("../ocean/spray-system").catch(() => {});
     }
     void import("../weather/precip").catch(() => {});
     void import("../weather/lightning").catch(() => {});

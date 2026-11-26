@@ -1705,15 +1705,17 @@ for b in CJ.get('beaches', []):
         for (q, t, nl) in strand_pts(line, 6.0, 7.0, 8.5, SRNG):                 # net posts + a line between
             z0 = H(q.x, q.y)
             merge(stakes, bm_cyl(0.09, 0.07, 2.1, 5, (q.x, q.y, z0 - 0.2)))
-for (x, y, r) in CJ.get('cove_rocks', []):
-    merge(crock, bm_ico(r, (x, y, SRNG.uniform(-0.4, 0.2)), 1, (1.25, 1.0, 0.8), seed=int(abs(x * 3 + y)), amp=0.35))
+for idx_c, (x, y, r) in enumerate(CJ.get('cove_rocks', [])):
+    z_top = max(0.45, r * 0.42 + SRNG.uniform(-0.15, 0.35))
+    reef_outcrop(crock, x, y, r, z_top, SRNG.uniform(0.0, 6.28), seed=int(abs(x * 3 + y)) + idx_c * 13 + 701, n_slabs=(3 if r >= 2.6 else 2), z_bot=-3.0)
     if SRNG.random() < 0.5:
-        merge(crock, bm_ico(r * 0.55, (x + r * 0.9, y - r * 0.4, -0.3), 1, (1.2, 1.0, 0.7), seed=int(abs(x + y * 3)), amp=0.3))
+        r2 = r * 0.55
+        reef_outcrop(crock, x + r * 0.9, y - r * 0.4, r2, max(0.25, r2 * 0.35), SRNG.uniform(0.0, 6.28), seed=int(abs(x + y * 3)) + idx_c * 29 + 911, n_slabs=2, z_bot=-3.0)
 obj('strand_driftwood', drift_w, face=lambda q: ((lin('#C9BCA6') if q.normal.z > 0.3 else lin('#9C8F7C')), PT['plain']), family='prop_crate', jitter=0.08)
 obj('strand_stakes', stakes, lin('#5A4B3E'), PT['plain'], family='prop_crate', jitter=0.1)
 obj('strand_dinghies', dinghy, face=lambda q: ((PAL['hull_blue'] if q.normal.z > -0.3 else PAL['hull_white']), PT['strakes']), family='prop_crate', jitter=0.05)
 obj('strand_dinghies_red', dinghy_in, face=lambda q: ((PAL['hull_red'] if q.normal.z > -0.3 else PAL['hull_white']), PT['strakes']), family='prop_crate', jitter=0.05)
-obj('cove_rocks', crock, face=lambda q: ((PAL['rock_wet'] if q.center.z < 0.35 else (PAL['rock_light'] if q.normal.z > 0.5 else PAL['rock'])), PT['rock']), family='rock', jitter=0.08)
+obj('cove_rocks', crock, face=reef_rock_face, family='rock', jitter=0.06)
 
 # ------------------------------------------------------------------ SKERRIES: limestone humps, a grass cap, wind-sheared pines (HBVG v1)
 from mathutils.geometry import tessellate_polygon
@@ -1748,14 +1750,23 @@ for i, sk in enumerate(CJ['skerries']):
             TREES['pine'] += 1
     CIRCLES_EXTRA.append((cx_, cy_, 1.0))
 
-# Write final HBVG v1 vegetation instance binary (hero trees + modular contour vineyard rows + skerry pines)
+# Phase 3 (§6.1): Mole planter trees promoted from faceted bm_ico crowns to sculpted v1.13.0 HBVG prototypes
+_mole_protos = ('olive_young', 'pomegranate_multi', 'almond_young')
+_mtrng = random.Random(4141)
+for _mi, (_mx, _my, _mz, _mh, _myaw) in enumerate(globals().get('MOLE_TREE_SITES', [])):
+    _mp = _mole_protos[_mi % len(_mole_protos)]
+    _msy = _mh / VEG_NOM_H[_mp]
+    emit_veg(_mp, _mx, _my, _mz, _myaw, _msy * _mtrng.uniform(0.86, 1.02), _msy, _mtrng)
+
+# Write final HBVG v1 vegetation instance binary (hero trees + modular contour vineyard rows + skerry pines + mole planters)
 write_veg_instances_bin()
 
-# ------------------------------------------------------------------ SHOALS reef: rocks + cardinal buoys; MOORING buoys; FAR PORTS rafts
+# ------------------------------------------------------------------ SHOALS reef: stratified limestone outcrops + cardinal buoys; MOORING buoys; FAR PORTS rafts
 rk = bmesh.new()
-for (x, y, r) in CJ['shoals']['rocks']:
-    merge(rk, bm_ico(r, (x, y, DRNG.uniform(-0.5, 0.4)), 1, (1.3, 1.0, 0.7), seed=int(x * 7 + y), amp=0.35))
-obj('shoals_rocks', rk, face=lambda q: ((PAL['rock_wet'] if q.center.z < 0.35 else PAL['rock']), PT['rock']), family='shoals', jitter=0.08)
+for idx_s, (x, y, r) in enumerate(CJ['shoals']['rocks']):
+    z_top = max(0.50, r * 0.40 + DRNG.uniform(-0.12, 0.42))
+    reef_outcrop(rk, x, y, r, z_top, DRNG.uniform(0.0, 6.28), seed=int(abs(x * 7 + y)) + idx_s * 17 + 1201, n_slabs=(3 if r >= 3.0 else 2), z_bot=-3.0)
+obj('shoals_rocks', rk, face=reef_rock_face, family='shoals', jitter=0.06)
 cb = bmesh.new()
 for (x, y) in CJ['shoals']['buoys']:
     merge(cb, bm_cyl(0.75, 0.85, 1.2, 8, (x, y, -0.3)))
@@ -1767,7 +1778,7 @@ obj('shoals_buoys', cb, face=lambda q: ((PAL['hull_red'] if int((q.center.z + 0.
 # broad drum painted in red and white bands (the hazard colours stay), a bronze fire-bowl on top burning red
 _bc = CJ['shoals']['beacon']
 bb_, bt_, bm_, bf_ = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
-merge(bb_, bm_cyl(3.6, 3.0, 2.2, 14, (_bc[0], _bc[1], -1.5)))
+merge(bb_, bm_cyl(4.0, 3.0, 3.7, 14, (_bc[0], _bc[1], -3.0)))
 for k in range(4):         # the lowest band sits in the reef rocks; three read above them
     merge(bt_, bm_cyl(2.2 - 0.12 * k, 2.2 - 0.12 * (k + 1), 0.9, 10, (_bc[0], _bc[1], 0.7 + k * 0.9), cap=(k == 3), rot=math.pi / 10))
 merge(bm_, bm_cyl(1.9, 1.9, 0.2, 10, (_bc[0], _bc[1], 4.3), rot=math.pi / 10))

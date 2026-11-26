@@ -296,6 +296,241 @@ describe("PostChain pass order (Phase 2: legacy MirrorPass retired)", () => {
     expect(beamPassActive(0.01, 0)).toBe(true);
     expect(beamPassActive(0, 0.01)).toBe(true);
   });
+
+  it("decouples render vs display DPR via manual composer sizing and atomic SMAA/FSR1 renderToScreen handoff", async () => {
+    const { Fsr1Pass } = await import("./shaders/fsr1");
+    const renderer = { setDrawingBufferSize: vi.fn() } as unknown as THREE.WebGLRenderer;
+    const inputBuffer = { setSize: vi.fn() };
+    const outputBuffer = { setSize: vi.fn() };
+    const depthRenderTarget = { setSize: vi.fn() };
+    const mainPass = { setSize: vi.fn(), renderToScreen: false };
+    const smaaPass = { setSize: vi.fn(), renderToScreen: true };
+    const fsrPass = new Fsr1Pass();
+    const setResSpy = vi.spyOn(fsrPass, "setResolutions");
+    const composer = { inputBuffer, outputBuffer, depthRenderTarget, passes: [mainPass, smaaPass, fsrPass] };
+    const chain = Object.create(PostChain.prototype) as PostChain;
+    Object.assign(chain as unknown as Record<string, unknown>, {
+      renderer, composer, smaaPass, fsrPass, fsrReady: true, sealed: true, fsrActive: false,
+    });
+
+    // Sub-native render DPR (0.8) on 1.5 display DPR: manual composer sizing + atomic handoff to FSR1
+    expect(chain.applyDisplayScaling(1600, 1000, 0.8, 1.5)).toBe(true);
+    expect(renderer.setDrawingBufferSize).toHaveBeenCalledWith(1600, 1000, 1.5);
+    expect(inputBuffer.setSize).toHaveBeenCalledWith(1280, 800);
+    expect(outputBuffer.setSize).toHaveBeenCalledWith(1280, 800);
+    expect(depthRenderTarget.setSize).toHaveBeenCalledWith(1280, 800);
+    expect(mainPass.setSize).toHaveBeenCalledWith(1280, 800);
+    expect(smaaPass.setSize).toHaveBeenCalledWith(1280, 800);
+    expect(setResSpy).toHaveBeenCalledWith(1280, 800, 2400, 1500);
+    expect(smaaPass.renderToScreen).toBe(false);
+    expect(fsrPass.enabled).toBe(true);
+    expect(fsrPass.renderToScreen).toBe(true);
+    expect(chain.isFsrActive()).toBe(true);
+
+    // Marginal upscale (1.5 vs 1.58, ratio >= 0.92): bypasses FSR cleanly
+    expect(chain.applyDisplayScaling(1600, 1000, 1.5, 1.58)).toBe(false);
+    expect(chain.isFsrActive()).toBe(false);
+
+    // Native DPR bypass (1.5 >= 1.5): atomically hands screen output back to SMAA and keeps easuTarget at 1×1 across composer.setSize()
+    expect(chain.applyDisplayScaling(1600, 1000, 1.5, 1.5)).toBe(false);
+    expect(smaaPass.renderToScreen).toBe(true);
+    expect(fsrPass.enabled).toBe(false);
+    expect(fsrPass.renderToScreen).toBe(false);
+    expect(chain.isFsrActive()).toBe(false);
+    expect([fsrPass.easuTarget.width, fsrPass.easuTarget.height]).toEqual([1, 1]);
+
+    // Subsequent composer.setSize() (which invokes pass.setSize() on disabled passes too) must NOT re-grow easuTarget
+    for (const p of composer.passes) p.setSize(2400, 1500);
+    expect([fsrPass.easuTarget.width, fsrPass.easuTarget.height]).toEqual([1, 1]);
+
+    fsrPass.dispose();
+  });
+
+  it("keeps BeamPass before NanScrub/Main regardless of FSR1 load order, sizes all internal passes to render res, and owns renderToScreen", async () => {
+    const camera = new THREE.PerspectiveCamera();
+    const render = new RenderPass(new THREE.Scene(), camera);
+    const makePass = (name: string) => ({ name, renderToScreen: false, enabled: true, setSize: vi.fn() }) as unknown as Pass & { setSize: ReturnType<typeof vi.fn> };
+    const fog = makePass("fog"), beam = makePass("beam"), scrub = makePass("scrub"), main = makePass("main"), smaa = makePass("smaa"), depth = makePass("depth");
+    smaa.renderToScreen = true;
+    const passes: Pass[] = [render, scrub, main, smaa];
+    const inputBuffer = { setSize: vi.fn() };
+    const outputBuffer = { setSize: vi.fn() };
+    const renderer = { setDrawingBufferSize: vi.fn() } as unknown as THREE.WebGLRenderer;
+    const composer = {
+      autoRenderToScreen: false,
+      inputBuffer,
+      outputBuffer,
+      passes,
+      addPass: (pass: Pass, index?: number) => {
+        if (index === undefined) passes.push(pass);
+        else passes.splice(index, 0, pass);
+      },
+    };
+    const chain = Object.create(PostChain.prototype) as PostChain;
+    Object.assign(chain as unknown as Record<string, unknown>, {
+      renderer, composer, scrub, main, smaaPass: smaa, depthPrepass: depth,
+      fsrPass: null, fsrLoad: null, fsrReady: false, fsrActive: false, fsrBatch: null,
+      sealed: false, worldPrepared: false, disposed: false, unregFsrPrep: [],
+    });
+
+    // Order A: FSR loads during boot BEFORE StaleFog and BeamSystem.init()
+    expect(await chain.ensureFsr(undefined, false)).toBe(true);
+    // Not sealed yet -> FSR is held back from composer.passes and isFsrReady() is false until seal()
+    expect(chain.isFsrReady()).toBe(false);
+    expect(passes.map((p) => p.name)).toEqual(["RenderPass", "scrub", "main", "smaa"]);
+
+    // Systems insert StaleFog at index 1 and BeamPass via insertBeforeMain
+    composer.addPass(fog, 1);
+    chain.insertBeforeMain(beam);
+    chain.seal();
+
+    expect(passes.map((p) => p.name)).toEqual(["depth", "RenderPass", "fog", "beam", "scrub", "main", "smaa", "Fsr1Pass"]);
+    expect(passes.indexOf(beam)).toBeLessThan(passes.indexOf(scrub));
+    expect(passes.indexOf(scrub)).toBeLessThan(passes.indexOf(main));
+    expect(passes[passes.length - 1]!.name).toBe("Fsr1Pass");
+    expect(smaa.renderToScreen).toBe(true);
+    expect(passes[passes.length - 1]!.renderToScreen).toBe(false);
+
+    // applyDisplayScaling after seal sizes ALL internal passes (including fog & beam) to render resolution
+    expect(chain.isFsrReady()).toBe(true);
+    expect(chain.applyDisplayScaling(1600, 1000, 0.8, 1.0)).toBe(true);
+    expect(fog.setSize).toHaveBeenCalledWith(1280, 800);
+    expect(beam.setSize).toHaveBeenCalledWith(1280, 800);
+    expect(main.setSize).toHaveBeenCalledWith(1280, 800);
+    expect(smaa.setSize).toHaveBeenCalledWith(1280, 800);
+    expect(smaa.renderToScreen).toBe(false);
+    expect(passes[passes.length - 1]!.renderToScreen).toBe(true);
+
+    // Order B: BeamPass inserted when FSR is already appended after seal
+    const lateBeam = makePass("late-beam");
+    chain.insertBeforeMain(lateBeam);
+    expect(passes.indexOf(lateBeam)).toBeLessThan(passes.indexOf(scrub));
+    expect(passes.indexOf(scrub)).toBeLessThan(passes.indexOf(main));
+
+    (passes[passes.length - 1] as unknown as { dispose(): void }).dispose();
+  });
+
+  it("precompiles EASU, RCAS, and offscreen SMAA variant on post-boot transition, retries supersession aborts, and rejects timed-out batches", async () => {
+    let resolvePrep!: (batch: { status: string; dispose: ReturnType<typeof vi.fn> }) => void;
+    const prepPromise = new Promise<{ status: string; dispose: ReturnType<typeof vi.fn> }>((r) => { resolvePrep = r; });
+    const register = vi.fn(() => () => {});
+    const smaaScene = new THREE.Scene();
+    const smaaCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const outputBuffer = { setSize: vi.fn() };
+    const smaa = { name: "smaa", renderToScreen: true, setSize: vi.fn(), scene: smaaScene, camera: smaaCam } as unknown as Pass;
+    const passes: Pass[] = [smaa];
+    const composer = {
+      inputBuffer: { setSize: vi.fn() },
+      outputBuffer,
+      passes,
+      addPass: (p: Pass) => { passes.push(p); p.setSize(1600, 1000); },
+    };
+
+    // Attempt 1: first prepare() throws Preparation superseded AbortError -> retries automatically -> resolves with timed-out batch -> stays unready & retryable!
+    const timedOutBatch = { status: "timed-out", dispose: vi.fn() };
+    const completeBatch = { status: "complete", dispose: vi.fn() };
+    let call = 0;
+    const prepare = vi.fn((_entries: unknown[]) => {
+      call++;
+      if (call === 1) return Promise.reject(new DOMException("Preparation superseded", "AbortError"));
+      if (call === 2) return Promise.resolve(timedOutBatch);
+      return prepPromise;
+    });
+
+    const chain = Object.create(PostChain.prototype) as PostChain;
+    Object.assign(chain as unknown as Record<string, unknown>, {
+      renderer: { setDrawingBufferSize: vi.fn() },
+      composer, smaaPass: smaa, preparation: { register, prepare },
+      fsrPass: null, fsrLoad: null, fsrReady: false, fsrActive: false, fsrPrepRegistered: false, fsrBatch: null,
+      sealed: true, worldPrepared: true, disposed: false, unregFsrPrep: [],
+    });
+
+    // Timed-out batch must NOT mark FSR ready and must keep retry guard open (isFsrLoadingOrLoaded() === false)
+    expect(await chain.ensureFsr(undefined, true)).toBe(false);
+    expect(call).toBe(2);
+    expect(timedOutBatch.dispose).toHaveBeenCalledTimes(1);
+    expect(chain.isFsrReady()).toBe(false);
+    expect(chain.isFsrLoadingOrLoaded()).toBe(false);
+
+    // Prepare entries must include EASU, RCAS, AND offscreen linear SMAA composite targeting composer.outputBuffer
+    const preparedEntries = prepare.mock.calls[0]![0] as Array<{ root: unknown; target: () => unknown }>;
+    expect(preparedEntries).toHaveLength(3);
+    expect(preparedEntries[2]!.root).toBe(smaaScene);
+    expect(preparedEntries[2]!.target()).toBe(outputBuffer);
+
+    // Attempt 2: retry succeeds cleanly; while in-flight FSR stays inactive, and on complete it enables
+    const loadPromise = chain.ensureFsr(undefined, true);
+    await vi.waitFor(() => expect(prepare).toHaveBeenCalledTimes(3));
+    expect(chain.isFsrReady()).toBe(false);
+    expect(chain.isFsrLoadingOrLoaded()).toBe(true);
+    expect(chain.applyDisplayScaling(1600, 1000, 0.8, 1.5)).toBe(false);
+    expect(smaa.renderToScreen).toBe(true);
+
+    resolvePrep(completeBatch);
+    expect(await loadPromise).toBe(true);
+    expect(chain.isFsrReady()).toBe(true);
+    // Disabled addPass() must not pre-grow easuTarget past 1×1 before applyDisplayScaling()
+    const addedFsr = passes[passes.length - 1] as unknown as { easuTarget: THREE.WebGLRenderTarget; dispose(): void };
+    expect([addedFsr.easuTarget.width, addedFsr.easuTarget.height]).toEqual([1, 1]);
+
+    expect(chain.applyDisplayScaling(1600, 1000, 0.8, 1.5)).toBe(true);
+    expect(smaa.renderToScreen).toBe(false);
+    expect(passes[passes.length - 1]!.renderToScreen).toBe(true);
+
+    completeBatch.dispose();
+    addedFsr.dispose();
+  });
+
+  it("prepares both on-screen (null) and offscreen (outputBuffer) SMAA variants when FSR1 is active at boot", async () => {
+    const { Fsr1Pass } = await import("./shaders/fsr1");
+    const smaaScene = new THREE.Scene();
+    const smaaCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const mainScene = new THREE.Scene();
+    const outputBuffer = new THREE.WebGLRenderTarget(1280, 800);
+    const mainPass = { name: "main", renderToScreen: false, scene: mainScene, camera: smaaCam } as unknown as Pass;
+    const smaaPass = { name: "smaa", renderToScreen: false, scene: smaaScene, camera: smaaCam } as unknown as Pass;
+    const fsrPass = new Fsr1Pass();
+    fsrPass.enabled = true;
+    fsrPass.renderToScreen = true;
+
+    const dummyRt = new THREE.WebGLRenderTarget(1, 1);
+    const dummyMat = new THREE.ShaderMaterial();
+    const passStub = (rt: THREE.WebGLRenderTarget) => ({ scene: new THREE.Scene(), camera: smaaCam, renderTarget: rt, renderTargetA: rt });
+    const bloom = {
+      luminancePass: passStub(dummyRt),
+      mipmapBlurPass: {
+        scene: new THREE.Scene(), camera: smaaCam,
+        downsamplingMaterial: dummyMat, upsamplingMaterial: dummyMat,
+        downsamplingMipmaps: [dummyRt], upsamplingMipmaps: [dummyRt],
+      },
+    };
+    const smaa = {
+      edgeDetectionPass: passStub(dummyRt), weightsPass: passStub(dummyRt),
+      edgeDetectionMaterial: dummyMat, weightsMaterial: dummyMat,
+      renderTargetEdges: dummyRt, renderTargetWeights: dummyRt,
+    };
+
+    const chain = Object.create(PostChain.prototype) as PostChain;
+    Object.assign(chain as unknown as Record<string, unknown>, {
+      composer: { passes: [mainPass, smaaPass, fsrPass], outputBuffer },
+      smaaPass, fsrPass, fsrActive: true, fsrReady: true, sealed: true,
+      bloom, tiltShift: { blurPass: passStub(dummyRt) }, smaa,
+    });
+
+    const prep = chain.preparationEntries();
+    const smaaTargets = prep.entries.filter((e) => e.root === smaaScene).map((e) => e.target());
+    expect(smaaTargets).toContain(null);
+    expect(smaaTargets).toContain(outputBuffer);
+    // Ensure generic loop skipped Fsr1Pass's empty inherited scene while fsrPreparationEntries included EASU & RCAS
+    expect(prep.entries.some((e) => e.root === fsrPass.easuScene)).toBe(true);
+    expect(prep.entries.some((e) => e.root === fsrPass.rcasScene)).toBe(true);
+
+    prep.dispose();
+    fsrPass.dispose();
+    outputBuffer.dispose();
+    dummyRt.dispose();
+    dummyMat.dispose();
+  });
 });
 
 describe("half-res GTAO effect", () => {

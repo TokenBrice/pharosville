@@ -5,6 +5,7 @@ import { AssetStore } from "./assets";
 import { QualityGovernor } from "./governor";
 import { installGpuPassProfiler, type GpuPassProfiler } from "./gpu-passes";
 import { PostChain, type PostPreparation } from "./post";
+import { extraEnabled } from "./extras";
 import { prefetchHarbour } from "./prefetch";
 import { CameraRig } from "./camera-rig";
 import { CameraInput } from "./input";
@@ -108,6 +109,8 @@ export class Engine {
   private width = 0;
   private height = 0;
   private pixelRatio = 0;
+  private displayPixelRatio = 0;
+  private fsrScaled = false;
   /** Reused every frame (no per-frame allocation). */
   private readonly frameState: { elapsed: number; delta: number; nowMs: number } = { elapsed: 0, delta: 0, nowMs: 0 };
   private readonly stats: HarbourStats = {
@@ -403,7 +406,8 @@ export class Engine {
         s.update(frame, ctx);
         if (prof) prof[`u:${s.name}`] = Math.round(performance.now() - ts);
       }
-      this.post.update(delta, ctx.timeOfDay, ctx.rig);
+      this.post.update(delta, ctx.timeOfDay, ctx.rig, ctx.services.get("sky"), ctx.uniforms, ctx.services.get("motion")?.reduced ?? false);
+      ctx.services.get("spray")?.flush?.();
       const tr = prof ? performance.now() : 0;
       ctx.composer.render(delta);
       this.graphics.assertValid();
@@ -452,8 +456,10 @@ export class Engine {
     try {
       t = this.lap("pre", t);
       for (const s of this.systems) if (this.ready.has(s)) { s.update(frame, ctx); t = this.lap(s.name, t); }
-      this.post.update(delta, ctx.timeOfDay, ctx.rig);
+      this.post.update(delta, ctx.timeOfDay, ctx.rig, ctx.services.get("sky"), ctx.uniforms, ctx.services.get("motion")?.reduced ?? false);
       t = this.lap("post.update", t);
+      ctx.services.get("spray")?.flush?.();
+      t = this.lap("spray", t);
       ctx.composer.render(delta);
       this.graphics.assertValid();
       if (this.aborted || this.disposed) return;
@@ -466,7 +472,7 @@ export class Engine {
     if (revision !== this.rendered.revision) p.tag("revision:install");
     if (textures !== ctx.renderer.info.memory.textures) p.tag("upload:texture-allocation");
     p.record({ frame: p.frames, revision: this.rendered.revision, tier: this.governor.tier,
-      dpr: ctx.renderer.getPixelRatio(), cpuMs: end - start, rafGapMs });
+      dpr: this.governor.dpr, cpuMs: end - start, rafGapMs });
   }
 
   /** One tier's complete feature identity: tier, SMAA preset, preparation/material generations and compile features. */
@@ -598,18 +604,33 @@ export class Engine {
       this.resolution = typeof matchMedia === "function" ? matchMedia(`(resolution: ${devicePixelRatio}dppx)`) : undefined;
       this.resolution?.addEventListener("change", this.onResize);
     }
-    const displayChanged = this.governor.reconcileDisplay(devicePixelRatio, backingDpr(w, h, 2, this.backingLimits));
+    const displayCap = backingDpr(w, h, 2, this.backingLimits);
+    const displayChanged = this.governor.reconcileDisplay(devicePixelRatio, displayCap);
     const dpr = this.governor.dpr;
-    const changed = w !== this.width || h !== this.height || dpr !== this.pixelRatio;
-    if (changed) {
+    const displayDpr = Math.max(dpr, Math.min(2, devicePixelRatio, displayCap));
+    const wantFsr = extraEnabled("fsr") && dpr < displayDpr * 0.92;
+    const canFsr = wantFsr && Boolean(this.post.isFsrReady?.());
+    const changed = w !== this.width || h !== this.height || dpr !== this.pixelRatio || displayDpr !== this.displayPixelRatio || canFsr !== this.fsrScaled;
+    if (changed || (forceSystems && canFsr)) {
       if (w !== this.width || h !== this.height) this.preparation?.invalidate();
-      this.width = w; this.height = h; this.pixelRatio = dpr;
+      this.width = w; this.height = h; this.pixelRatio = dpr; this.displayPixelRatio = displayDpr;
       this.governor.resetTiming();
-      renderer.setDrawingBufferSize(w, h, dpr);
-      composer.setSize(w, h);
+      if (canFsr && this.post.applyDisplayScaling?.(w, h, dpr, displayDpr)) {
+        this.fsrScaled = true;
+      } else {
+        this.post.disableFsr?.();
+        this.fsrScaled = false;
+        renderer.setDrawingBufferSize(w, h, dpr);
+        composer.setSize(w, h);
+      }
       if (camera.aspect !== w / h) { camera.aspect = w / h; camera.updateProjectionMatrix(); }
       uniforms.uResolution.value.set(Math.floor(w * dpr), Math.floor(h * dpr));
       this.stats.dpr = dpr;
+    }
+    if (wantFsr && !canFsr && !this.post.isFsrLoadingOrLoaded?.()) {
+      void this.post.ensureFsr?.(this.ctx.signal, this.booted).then((ready) => {
+        if (ready && !this.disposed && !this.aborted && this.post.isFsrReady?.()) this.resize(true);
+      });
     }
     if (changed || forceSystems) for (const s of this.systems) if (this.ready.has(s)) s.resize?.(w, h, this.ctx);
     if (displayChanged) this.governor.publish();

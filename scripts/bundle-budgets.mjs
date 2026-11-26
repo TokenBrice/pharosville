@@ -117,8 +117,15 @@ export const aggregateBudgets = {
   // groundcover system + archetypes + shader 33.6 kB / 12.5 kB gz, vegetation system 7.6 kB / 3.4 kB gz)
   // kept harbour-app inside its v1.8.0 cap while moving aggregate Total JS to 3,113,440 B raw /
   // 999,856 B gzip (+100 B over the v1.8.0 gzip cap). Re-baselined to measured + 5%, rounded up.
-  maxJsRawBytes: 3_269_112,
-  maxJsGzipBytes: 1_049_849,
+  // Re-baselined 2026-11-26 for SOTA WebGL2 Water & Harbour Visuals (Phases 0–3):
+  // ten lazy WebGL2 engine chunks (seabed 10.4 kB, caustics-pass 9.7 kB, projected-grid 4.9 kB,
+  // wake-ribbons 14.3 kB, fft-system 18.6 kB + spectrum 7.9 kB, planar-mirror 5.7 kB, hiz-ssr 20.6 kB,
+  // spray-system 15.6 kB, fsr1 10.4 kB, plus ocean-material split) kept entry, harbour-app, DetailPanels,
+  // vendor-rendering, CSS, and every first-frame byte cap in scripts/perf/budgets.json inside existing
+  // ceilings while moving aggregate Total JS to 3,307,376 B raw / 1,063,272 B gzip. Re-baselined to
+  // measured + 5%, rounded up.
+  maxJsRawBytes: 3_472_745,
+  maxJsGzipBytes: 1_116_436,
 };
 
 export const forbiddenBundleChunks = [

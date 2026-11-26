@@ -292,6 +292,72 @@ def strata_outcrop_face(q):
     return (GRANITE[band], PT['rock'])
 
 
+def reef_outcrop(bm, cx, cy, radius, z_top, yaw, seed, n_slabs=2, z_bot=-3.0):
+    """Sculpted stratified Alexandrian ochre limestone reef outcrop extending cleanly down to z_bot (-3.0 m).
+
+    Replaces faceted bm_ico lumps on the Shoals reef, Wreck Cove rocks, and breakwater rubble so underwater
+    refraction + caustics reveal terraced limestone beds plunging into the seabed.
+    """
+    rng = random.Random(seed)
+    ca_, sa_ = math.cos(yaw), math.sin(yaw)
+    dip_x = rng.uniform(0.06, 0.15) * (1 if rng.random() < 0.5 else -1)
+    dip_y = rng.uniform(0.05, 0.13) * (1 if rng.random() < 0.5 else -1)
+    # Build n_slabs tiered limestone beds: broadest shelf rooted at z_bot (-3.0 m), upper beds stepped & bevelled
+    for s in range(n_slabs):
+        frac = 1.0 - s * (0.24 + rng.uniform(0.0, 0.05))
+        r_a = radius * frac * rng.uniform(1.05, 1.28)
+        r_b = radius * frac * rng.uniform(0.76, 0.96)
+        ox = rng.uniform(-radius * 0.14, radius * 0.14) * s
+        oy = rng.uniform(-radius * 0.14, radius * 0.14) * s
+        scx, scy = cx + ox * ca_ - oy * sa_, cy + ox * sa_ + oy * ca_
+        slab_bot = z_bot if s == 0 else max(z_bot + 0.6, z_top - (n_slabs - s) * 0.78 - 0.55)
+        slab_top = z_top - (n_slabs - 1 - s) * rng.uniform(0.32, 0.55)
+        if slab_top <= slab_bot + 0.25:
+            slab_top = slab_bot + 0.35
+        bevel_h = min(0.22, (slab_top - slab_bot) * 0.25)
+        ns = rng.choice((6, 7))
+        a0 = yaw + s * 0.35 + rng.uniform(-0.2, 0.2)
+        base_r, mid_r, top_r = [], [], []
+        sb = bmesh.new()
+        for k in range(ns):
+            ang = a0 + 2.0 * math.pi * k / ns + rng.uniform(-0.14, 0.14)
+            rk = 0.78 + 0.34 * ((k * 3 + s * 5) % 4) / 3.0 + rng.uniform(-0.06, 0.06)
+            lx = math.cos(ang) * r_a * rk
+            ly = math.sin(ang) * r_b * rk
+            wx = lx * ca_ - ly * sa_
+            wy = lx * sa_ + ly * ca_
+            dz_dip = lx * math.sin(dip_x) + ly * math.sin(dip_y)
+            foot_expand = 1.24 if s == 0 else 1.06
+            base_r.append(sb.verts.new((scx + wx * foot_expand, scy + wy * foot_expand, slab_bot)))
+            mid_r.append(sb.verts.new((scx + wx, scy + wy, slab_top - bevel_h + dz_dip)))
+            top_r.append(sb.verts.new((scx + wx * 0.84, scy + wy * 0.84, slab_top + dz_dip)))
+        for k in range(ns):
+            j = (k + 1) % ns
+            sb.faces.new((base_r[k], base_r[j], mid_r[j], mid_r[k]))
+            sb.faces.new((mid_r[k], mid_r[j], top_r[j], top_r[k]))
+        sb.faces.new(top_r)
+        bmesh.ops.recalc_face_normals(sb, faces=sb.faces)
+        merge(bm, sb)
+
+
+def reef_rock_face(q):
+    """Stratified Alexandrian ochre limestone coloring for intertidal & submerged reef outcrops."""
+    c = q.center; nz = q.normal.z
+    nn = noise.noise(Vector((c.x * 0.18, c.y * 0.18, c.z * 0.55)))
+    if c.z < -0.35:
+        return ((lin('#6E6B58') if nz > 0.45 else WET), PT['rock'])
+    if c.z < 0.40:
+        return ((WEED if c.z < 0.08 and nn > -0.05 else WET), PT['rock'])
+    if c.z < 0.82:
+        return ((WET_MID if nn > -0.15 else GRANITE[4]), PT['rock'])
+    if nz > 0.56:
+        if nn > 0.40:
+            return (LICHEN, PT['rock'])
+        return ((WEATHER if nn > -0.12 else GRANITE[1]), PT['rock'])
+    band = int((c.z + 0.35 * nn) / 0.65) % len(GRANITE)
+    return (GRANITE[band], PT['rock'])
+
+
 _sk_poly = _resample(COAST, 3.0)
 _sk_tops = [H(x, y) for x, y in _sk_poly]
 _runs = _col_runs(_sk_poly, _sk_tops)

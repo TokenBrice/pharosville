@@ -177,7 +177,7 @@ async function prepareFrame({ settle, closest, probe, requestedWeather }, probeS
   await new Promise((r) => setTimeout(r, settle));
   const weather = e.ctx.services.get("weather");
   if (requestedWeather && weather?.band !== requestedWeather) throw new Error(`Requested ${requestedWeather}, rendered ${weather?.band}; use DEV overrides or a matching API fixture`);
-  return { programs: e.ctx.renderer.info.programs?.length ?? 0, quality: window.__harbourStats.quality, effectiveDpr: e.ctx.renderer.getPixelRatio(), weather: weather ? { ...weather.state } : null, season: e.ctx.services.get("season")?.season, renderedRevision: window.__harbourStats.renderedRevision, renderedBoats: window.__harbourStats.renderedBoats, probe, probeMaterials };
+  return { programs: e.ctx.renderer.info.programs?.length ?? 0, quality: window.__harbourStats.quality, effectiveDpr: window.__harbourStats?.dpr ?? e.ctx.renderer.getPixelRatio(), displayDpr: e.ctx.renderer.getPixelRatio(), weather: weather ? { ...weather.state } : null, season: e.ctx.services.get("season")?.season, renderedRevision: window.__harbourStats.renderedRevision, renderedBoats: window.__harbourStats.renderedBoats, probe, probeMaterials };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main().catch((error) => { console.error(error.message); process.exitCode = error.exitCode ?? 1; });

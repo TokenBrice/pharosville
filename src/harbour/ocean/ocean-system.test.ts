@@ -430,6 +430,7 @@ describe("Phase 1–2 render-order boundary, SceneCapture guard, Seabed, Caustic
     vi.doMock("./fft/fft-system", () => { throw new Error("fft loaded on low"); });
     vi.doMock("./planar-mirror", () => { throw new Error("planar-mirror loaded on low"); });
     vi.doMock("./hiz-ssr", () => { throw new Error("hiz-ssr loaded on low"); });
+    vi.doMock("./spray-system", () => { throw new Error("spray-system loaded on low"); });
     try {
       const { OceanSystem: FreshOceanSystem } = await import("./ocean-system");
       const quality = { tier: "low" as const, dpr: 1, onChange: () => () => {} };
@@ -456,6 +457,7 @@ describe("Phase 1–2 render-order boundary, SceneCapture guard, Seabed, Caustic
       vi.doUnmock("./fft/fft-system");
       vi.doUnmock("./planar-mirror");
       vi.doUnmock("./hiz-ssr");
+      vi.doUnmock("./spray-system");
       vi.resetModules();
     }
   });

@@ -57,7 +57,7 @@ Coin panel only, above the size gate; never requested by the world feed. Canary 
 - Detail panels lazy chunk: raw <= 171 KiB, gzip <= 53 KiB
 - Three.js renderer chunk: raw <= 960 KiB, gzip <= 276 KiB
 - Harbour CSS: raw <= 36 KiB, gzip <= 9 KiB
-- Total JS: raw <= 3,192 KiB, gzip <= 1,025 KiB
+- Total JS: raw <= 3,391 KiB, gzip <= 1,090 KiB
 
 ## Workflow Gates
 

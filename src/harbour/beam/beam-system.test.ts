@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorldUniforms } from "../engine/uniforms";
 import type { EngineContext } from "../engine/types";
 import { TIERS, type QualityService, type QualitySettings } from "../engine/quality";
-import { BeamSystem, beamPassActive, shimmerAmount } from "./beam-system";
+import { BEAM_FRAG, BeamSystem, beamPassActive, shimmerAmount } from "./beam-system";
 
 interface BeamHarness { SH: { uShAmt: THREE.Uniform<number> }; U: { uIntensity: THREE.Uniform<number> }; pass: { enabled: boolean } }
 
@@ -128,5 +128,35 @@ it("scales volumetric shaft raymarch steps with quality tier and unsubscribes on
     expect(uSteps.value).toBe(14);
     beam.dispose(f.ctx);
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it("wires uPrecip rain/snow moisture scatter into the Pharos beam shaft while preserving B07/C04 & optical depth cap", async () => {
+  vi.stubGlobal("location", { search: "" });
+  try {
+    const f = await beamWorld({ night: 1 });
+    const h = f.beam as unknown as { U: { uPrecip: THREE.Uniform<number> } };
+    expect(h.U.uPrecip.value).toBe(0);
+
+    f.ctx.uniforms.uPrecip.value.set(0.62, 0.18);
+    f.look(at(330));
+    expect(h.U.uPrecip.value).toBeCloseTo(0.8, 5);
+
+    expect(BEAM_FRAG).toContain("uPrecip");
+    expect(BEAM_FRAG).toContain("smoothstep(0.25, 0.90, uPrecip)");
+    expect(BEAM_FRAG).toContain("1.0 - exp(-acc.x * 0.74)");
+
+    // B07 / C04 checks on BEAM_FRAG: ascending literal smoothstep only, zero pow(..., 2.0)
+    const smoothRe = /(?<![\w.])smoothstep\s*\(([^,]+),([^,]+),/g;
+    for (let m = smoothRe.exec(BEAM_FRAG); m; m = smoothRe.exec(BEAM_FRAG)) {
+      const e0 = Number(m[1]!.trim());
+      const e1 = Number(m[2]!.trim());
+      if (Number.isFinite(e0) && Number.isFinite(e1)) {
+        expect(e0 < e1, `smoothstep(${m[1]}, ${m[2]})`).toBe(true);
+      }
+    }
+    expect(BEAM_FRAG).not.toMatch(/\bpow\s*\([^)]*,\s*2(?:\.0*)?\s*\)/);
+
+    f.beam.dispose(f.ctx);
   } finally { vi.unstubAllGlobals(); }
 });

@@ -312,7 +312,9 @@ export class CivicSystem implements WorldSystem {
     const windTo = life?.windTo ?? [0.84, -0.54], wind = life?.wind ?? 0.35;
     const levels = workLevels(this.flows);
     const banked = this.flows.banked;
-    const vh = u.uResolution.value.y / Math.max(1, ctx.renderer.getPixelRatio());
+    const renderDpr = ctx.services.get("quality")?.dpr ?? ctx.renderer.getPixelRatio();
+    const resY = u.uResolution?.value?.y ?? 0;
+    const vh = ctx.renderer.domElement?.clientHeight || (resY / Math.max(0.25, renderDpr));
     this.mint?.update(dt, levels.mint, banked, moving, windTo, wind, u);
     this.burn?.update(dt, levels.burn, this.flows.dominance, banked, moving, windTo, wind, u, ctx.camera, vh, this.burnLee);
     this.yard?.update(dt, moving, u.uNight.value, { to: windTo, k: wind }, ctx.camera, vh);

@@ -29,6 +29,8 @@ export const PRECIP_BUDGET: Record<"high" | "medium" | "low", PrecipBudget> = {
 const MAX_FALL = PRECIP_BUDGET.high.fall;
 const MAX_SPLASH = PRECIP_BUDGET.high.splash;
 export const MAX_SPRAY = 520;
+export const SQUALL_COUNT = 22;
+export const SQUALL_THRESHOLD = 0.65;
 /** E24: the lightning's lift on falling drops (was 2.2: every drop flashed with the strike). */
 export const RAIN_FLASH_LIFT = extraEnabled("storm") ? 1.2 : 2.2;
 
@@ -366,6 +368,90 @@ void main() {
   gl_FragColor = vec4(c, a);
 }`;
 
+export const SQUALL_VERT = /* glsl */ `
+attribute vec4 aSquallA; // baseAngle (rad), radius (m), halfWidth (m), height (m)
+attribute vec4 aSquallB; // driftSpeed, phase (0..1), slantK, opacityK
+
+uniform float uPTime;
+uniform float uStormSea;
+uniform vec2 uWindV;
+uniform vec3 uCam;
+uniform vec2 uSquallCenter;
+
+varying vec2 vUv;
+varying float vA;
+varying float vSeed;
+
+void main() {
+  float stormK = smoothstep(0.65, 0.92, uStormSea);
+  vec2 corner = position.xy;
+  float y01 = corner.y * 0.5 + 0.5;
+
+  float wLen = length(uWindV);
+  vec2 wDir = wLen > 1e-3 ? uWindV / wLen : vec2(0.84, -0.54);
+
+  float cyc = fract(aSquallB.y + uPTime * aSquallB.x * 0.009);
+  float wrapFade = smoothstep(0.0, 0.16, cyc) * (1.0 - smoothstep(0.84, 1.0, cyc));
+  vec2 ringPos = vec2(cos(aSquallA.x), sin(aSquallA.x)) * aSquallA.y;
+  vec2 xz = uSquallCenter + ringPos + wDir * ((cyc - 0.5) * 440.0);
+  vec2 fromCenter = xz - uSquallCenter;
+  float distC = length(fromCenter);
+  if (distC < 560.0) {
+    xz = uSquallCenter + (distC > 1e-3 ? fromCenter / distC : vec2(cos(aSquallA.x), sin(aSquallA.x))) * 560.0;
+  }
+
+  vec2 toCam = uCam.xz - xz;
+  float tcLen = length(toCam);
+  vec2 fwdXZ = tcLen > 1e-3 ? toCam / tcLen : vec2(0.0, 1.0);
+  vec3 right = vec3(-fwdXZ.y, 0.0, fwdXZ.x);
+
+  vec3 slant = vec3(wDir.x, 0.0, wDir.y) * (y01 * aSquallA.w * 0.14 * aSquallB.z);
+  vec3 wp = vec3(xz.x, mix(-8.0, aSquallA.w, y01), xz.y) + right * (corner.x * aSquallA.z) + slant;
+
+  float camDist = length(vec3(xz.x, aSquallA.w * 0.35, xz.y) - uCam);
+  float nearFade = smoothstep(220.0, 440.0, camDist);
+
+  vUv = vec2(corner.x * 0.5 + 0.5, y01);
+  vA = stormK * wrapFade * nearFade * aSquallB.w;
+  vSeed = aSquallB.y;
+  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+}`;
+
+export const SQUALL_FRAG = /* glsl */ `
+uniform sampler2D uNoise;
+uniform float uPTime;
+uniform vec3 uAmbRain;
+uniform float uFlashK;
+uniform float uFlashLift;
+
+varying vec2 vUv;
+varying float vA;
+varying float vSeed;
+
+void main() {
+  if (vA < 0.002) discard;
+
+  float vFeather = smoothstep(0.0, 0.24, vUv.y) * (1.0 - smoothstep(0.62, 1.0, vUv.y));
+  float hFeather = smoothstep(0.0, 0.26, vUv.x) * (1.0 - smoothstep(0.74, 1.0, vUv.x));
+
+  float tFall = uPTime * 0.085;
+  vec2 uv1 = vec2(vUv.x * 3.4 + vSeed * 5.7, vUv.y * 0.60 + tFall);
+  vec2 uv2 = vec2(vUv.x * 7.6 - vSeed * 3.1 + 0.37, vUv.y * 1.10 + tFall * 1.45);
+  float n1 = texture2D(uNoise, uv1).r;
+  float n2 = texture2D(uNoise, uv2).g;
+  float streaks = smoothstep(0.22, 0.86, n1 * 0.62 + n2 * 0.52);
+  float veil = 0.34 + 0.66 * streaks;
+
+  float a = clamp(vFeather * hFeather * veil * vA * 0.38, 0.0, 0.44);
+  if (a < 0.002) discard;
+
+  vec3 lit = uAmbRain * vec3(0.84, 0.90, 0.98) + vec3(0.68, 0.76, 1.0) * uFlashK * (uFlashLift * 0.65);
+  vec3 softL = lit / (1.0 + lit * 0.42);
+  vec3 col = softL * mix(vec3(0.74, 0.80, 0.88), vec3(0.92, 0.96, 1.02), vUv.y) + vec3(0.014, 0.018, 0.024);
+
+  gl_FragColor = vec4(col, a);
+}`;
+
 export interface PrecipShared {
   uAOTex: THREE.IUniform<THREE.Texture>;
   uAOBounds: THREE.IUniform<THREE.Vector4>;
@@ -398,15 +484,20 @@ export interface PrecipFrame {
   /** E25 (M+): the shared gust field (dir x, dir z, -, clock) the rain sheets follow, and their strength (0 = none). */
   gust?: THREE.Vector4;
   sheets?: number;
+  /** Phase 3-B: storm sea intensity 0..1; outer-harbour squall curtains activate strictly above 0.65. */
+  stormSea?: number | undefined;
 }
 
 export class Precipitation {
   readonly fall: THREE.Mesh;
   readonly ground: THREE.Mesh;
+  readonly squall: THREE.Mesh;
   private readonly fallGeo: THREE.InstancedBufferGeometry;
   private readonly groundGeo: THREE.InstancedBufferGeometry;
+  private readonly squallGeo: THREE.InstancedBufferGeometry;
   private readonly fallMat: THREE.ShaderMaterial;
   private readonly groundMat: THREE.ShaderMaterial;
+  private readonly squallMat: THREE.ShaderMaterial;
   private readonly common: Record<string, THREE.IUniform>;
   private fallbackFft: THREE.DataArrayTexture | null = null;
   private fallbackSdf: THREE.DataTexture | null = null;
@@ -496,6 +587,55 @@ export class Precipitation {
     this.ground.renderOrder = 79;
     this.ground.name = "weather-ground";
     this.ground.visible = false;
+
+    // ---- volumetric storm squall curtains (outer harbour / open sea, strictly gated to stormSea > 0.65)
+    this.squallGeo = quad(-1);
+    const sqA = new Float32Array(SQUALL_COUNT * 4);
+    const sqB = new Float32Array(SQUALL_COUNT * 4);
+    for (let i = 0; i < SQUALL_COUNT; i++) {
+      const layer = i & 1;
+      const baseAngle = ((i + 0.5) / SQUALL_COUNT) * Math.PI * 2 + (R() - 0.5) * 0.22;
+      const radius = (layer === 0 ? 640 : 940) + R() * 280;
+      const halfWidth = (layer === 0 ? 155 : 210) + R() * 95;
+      const height = (layer === 0 ? 225 : 290) + R() * 95;
+      sqA.set([baseAngle, radius, halfWidth, height], i * 4);
+      sqB.set([0.72 + R() * 0.65, R(), 0.75 + R() * 0.5, 0.72 + R() * 0.28], i * 4);
+    }
+    this.squallGeo.setAttribute("aSquallA", new THREE.InstancedBufferAttribute(sqA, 4));
+    this.squallGeo.setAttribute("aSquallB", new THREE.InstancedBufferAttribute(sqB, 4));
+    this.squallGeo.instanceCount = 0;
+    this.squallMat = new THREE.ShaderMaterial({
+      name: "hb_weather_squall",
+      vertexShader: SQUALL_VERT,
+      fragmentShader: SQUALL_FRAG,
+      uniforms: {
+        uPTime: this.common.uPTime,
+        uAmbRain: this.common.uAmbRain,
+        uFlashK: this.common.uFlashK,
+        uFlashLift: this.common.uFlashLift,
+        uCam: this.common.uCam,
+        uWindV: this.common.uWindV,
+        uNoise: { value: shared.noise },
+        uStormSea: { value: 0 },
+        uSquallCenter: oc?.uSceneCenter ?? { value: new THREE.Vector2(0, 0) },
+      },
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      fog: false,
+      side: THREE.DoubleSide,
+      forceSinglePass: true,
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.SrcAlphaFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor,
+    });
+    this.squall = new THREE.Mesh(this.squallGeo, this.squallMat);
+    this.squall.frustumCulled = false;
+    this.squall.renderOrder = 78;
+    this.squall.name = "weather-squall";
+    this.squall.visible = false;
   }
 
   /** Bind ocean shared uniforms lazily when OceanSystem initializes after WeatherSystem (systems.ts order). */
@@ -511,6 +651,7 @@ export class Precipitation {
     u.uFftOn = oc.uFftOn;
     u.uFftScales = oc.uFftScales;
     u.uFftWeights = oc.uFftWeights;
+    this.squallMat.uniforms.uSquallCenter = oc.uSceneCenter;
   }
 
   /** Spray anchors: points just off the surf line (x, z, outward normal). Instances [0, n) of the ground draw. */
@@ -578,6 +719,17 @@ export class Precipitation {
     // realistically scaled concentric ripple radii (shader hard-caps rendered radius <= 0.24 m, diameter <= 0.48 m)
     gu.uSplashSize.value = Math.min(0.21, Math.max(0.14, 0.00030 * S)) * (1 + 0.14 * downpour);
     gu.uSplashAlpha.value = 0.09 + 0.6 * Math.pow(rain01, 1.1);
+
+    // ---- volumetric storm squall curtains (strictly hidden when stormSea <= 0.65: zero calm/noon/night cost)
+    const stormSea = f.stormSea ?? 0;
+    this.squallMat.uniforms.uStormSea.value = stormSea;
+    if (stormSea > SQUALL_THRESHOLD) {
+      this.squallGeo.instanceCount = SQUALL_COUNT;
+      this.squall.visible = true;
+    } else {
+      this.squallGeo.instanceCount = 0;
+      this.squall.visible = false;
+    }
   }
 
   /** Current box scale (tests / debug). */
@@ -586,10 +738,13 @@ export class Precipitation {
   dispose(): void {
     this.fall.removeFromParent();
     this.ground.removeFromParent();
+    this.squall.removeFromParent();
     this.fallGeo.dispose();
     this.groundGeo.dispose();
+    this.squallGeo.dispose();
     this.fallMat.dispose();
     this.groundMat.dispose();
+    this.squallMat.dispose();
     this.fallbackFft?.dispose();
     this.fallbackSdf?.dispose();
   }

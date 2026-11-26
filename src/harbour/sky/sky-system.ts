@@ -52,6 +52,8 @@ export interface SkyShared {
   uGlintCol: THREE.IUniform<THREE.Color>;
   /** x cloud cover, y wind, z wind dir x, w wind dir z */
   uWeatherSea: THREE.IUniform<THREE.Vector4>;
+  /** Painted sun disc projected onto screen UV: (uvX, uvY, discVis, sunY) for dawn/dusk God Rays. */
+  uSunScreen: THREE.IUniform<THREE.Vector4>;
 }
 
 export interface SkyService {
@@ -104,6 +106,7 @@ export class SkySystem implements WorldSystem {
     uGlintDir: { value: new THREE.Vector3(0, 0.5, -1).normalize() },
     uGlintCol: { value: new THREE.Color(0, 0, 0) },
     uWeatherSea: { value: new THREE.Vector4(0.38, 0.3, 0.8, -0.6) },
+    uSunScreen: { value: new THREE.Vector4(0.5, 0.8, 0, 0.5) },
   };
   private readonly u = {
     ...createSkyPaletteUniforms(),
@@ -149,6 +152,7 @@ export class SkySystem implements WorldSystem {
   private readonly glint = new THREE.Vector3();
   private readonly strikeDir = new THREE.Vector3();
   private readonly twilightDir = new THREE.Vector3();
+  private readonly sunProj = new THREE.Vector3();
   private readonly tmpC = new THREE.Color();
   private shadowDrift = (Date.now() / 1000) % 5000;
   /** W04: tonight's moon (age days, illuminated fraction); recomputed once a minute */
@@ -416,6 +420,18 @@ export class SkySystem implements WorldSystem {
     this.shared.uFwdAz.value = fwdAz;
     this.shared.uHorizonDist.value = R;
     this.shared.uHorizonDepr.value = depr;
+    // Project painted uSunDisc (backdrop-glsl.ts geometry) onto screen UV for ¼-res dawn/dusk God Rays (§6.3)
+    const sunThClamped = THREE.MathUtils.clamp(sunAz * COMP, -78, 78);
+    const sunU = Math.tan(sunThClamped * D2R);
+    const sunFwdX = Math.sin(fwdAz), sunFwdZ = -Math.cos(fwdAz);
+    const camPos = ctx.camera.position;
+    const sunWx = camPos.x + (sunFwdX + rightX * sunU) * R;
+    const sunWz = camPos.z + (sunFwdZ + rightZ * sunU) * R;
+    const sunWy = camPos.y + R * Math.tan(Math.atan2(-camPos.y, R) + discE(sunEl) * D2R);
+    ctx.camera.updateMatrixWorld();
+    this.sunProj.set(sunWx, sunWy, sunWz).project(ctx.camera);
+    const sunScreenVis = this.sunProj.z < 1 && Number.isFinite(this.sunProj.x) && Number.isFinite(this.sunProj.y) ? sunW : 0;
+    this.shared.uSunScreen.value.set(this.sunProj.x * 0.5 + 0.5, this.sunProj.y * 0.5 + 0.5, sunScreenVis, sunDir.y);
 
     // ---- clouds: cover reveals banks, wind drifts them (near layers faster); wrap at the band edge with a fade
     this.clock ??= new MotionClock(ensureMotionService(ctx));

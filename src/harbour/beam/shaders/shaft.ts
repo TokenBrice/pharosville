@@ -5,7 +5,7 @@ export const BEAM_FRAG = /* glsl */ `
 uniform mat4 uCamWorld;
 uniform mat4 uInvProj;
 uniform vec3 uBeamPos, uColor, uAx0;
-uniform float uTime, uIntensity, uL, uWind, uNear, uSteps;
+uniform float uTime, uIntensity, uL, uWind, uNear, uSteps, uPrecip;
 uniform sampler2D uNoise;
 uniform vec3 uSkyRef;      // the horizon sky (cloud fade on sky pixels)
 uniform float uSkyT;       // view-ray distance (m) beyond which the surface hit is the sky backdrop
@@ -27,9 +27,10 @@ vec2 beamDensity(vec3 p, vec3 ax, float L, float fine) {
   float Rn = R0 + max(s, 0.0) * TANA;
   float x2 = (r * r) / (Rn * Rn);
   // incandescent mirror core + luminous golden shaft + soft atmospheric scatter sheath
+  float rainMist = smoothstep(0.25, 0.90, uPrecip);
   float coreP = exp(-x2 * 11.5) * 0.58;
   float bodyP = exp(-x2 * 2.15) * 0.64;
-  float sheathP = exp(-x2 * 0.68) * 0.14;
+  float sheathP = exp(-x2 * mix(0.68, 0.50, rainMist)) * (0.14 + 0.14 * rainMist);
   // born at the bronze mirror, brightest exiting the tholos colonnade, thinning smoothly over the sea
   float exitRamp = smoothstep(2.5, 13.5, s);
   float fall = exitRamp * (0.08 + 0.92 * exp(-s / (L * 0.24))) * (1.0 - smoothstep(L * 0.48, L, s));
@@ -46,7 +47,16 @@ vec2 beamDensity(vec3 p, vec3 ax, float L, float fine) {
   float n4 = texture2D(uNoise, (p.xz - drift * 1.1) * 0.11 + vec2(0.3, p.y * 0.07)).g;
   // marine humidity thickens gently toward the sea surface while staying airy above
   float seaVapour = 0.88 + 0.30 * exp(-max(p.y - 12.0, 0.0) / 55.0);
-  float mist = (0.58 + 1.24 * smoothstep(0.22, 0.94, n1 * 0.68 + n2 * 0.56)) * seaVapour;
+  // drifting precipitation moisture veil modulates scatter gently in rain/snow without washing out PSI hue or reach
+  float rainVeil = 1.0;
+  if (rainMist > 0.001) {
+    vec2 fallUv = vec2((p.x + p.z) * 0.042 - uTime * (0.28 + 0.9 * uWind), p.y * 0.022 + uTime * 0.72);
+    float rSheet = texture2D(uNoise, fallUv).r;
+    float rGust = bmVNoise((p.xz + drift * 1.35) / 34.0 + vec2(0.0, p.y * 0.025 + uTime * 0.45));
+    float veilMod = 0.84 + 0.46 * smoothstep(0.24, 0.88, rSheet * 0.55 + rGust * 0.55);
+    rainVeil = mix(1.0, veilMod * 1.18, rainMist);
+  }
+  float mist = (0.58 + 1.24 * smoothstep(0.22, 0.94, n1 * 0.68 + n2 * 0.56)) * seaVapour * rainVeil;
   // fine dust motes / spray shimmer resolved only when step size resolves the texture frequency
   float motes = mix(1.0, 0.74 + 0.42 * n3 + 0.22 * n4, fine);
   float k = fall * spread * mist * motes;

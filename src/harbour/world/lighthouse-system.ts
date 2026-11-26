@@ -220,7 +220,8 @@ export class LighthouseSystem implements WorldSystem {
     const intro = ctx.services.get("beam")?.introScale ?? 1;
     const level = this.level * intro;
     if (this.fire) {
-      const vh = ctx.renderer.domElement.height || 1000;
+      const resY = ctx.uniforms.uResolution?.value?.y ?? 0;
+      const vh = (resY > 1 ? resY : ctx.renderer.domElement.height) || 1000;
       this.fire.update(frame.delta, { level, banked, lamp: this.lampCol, windTo: life?.windTo ?? [0.84, -0.54], wind: life?.wind ?? 0.35, reduced }, ctx.uniforms, ctx.camera, vh);
     }
     const fl = this.fire?.flicker ?? 1;

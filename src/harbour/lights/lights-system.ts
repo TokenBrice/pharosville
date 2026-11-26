@@ -448,7 +448,8 @@ export class LightsSystem implements WorldSystem {
       this.seenMove = s.moveVersion;
     }
     const cam = ctx.camera;
-    this.uPx.value = (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / Math.max(1, ctx.renderer.domElement.height);
+    const resY = ctx.uniforms.uResolution?.value?.y ?? 0;
+    this.uPx.value = (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / Math.max(1, resY > 1 ? resY : ctx.renderer.domElement.height);
     this.pickTimer -= frame.delta;
     if (this.pickTimer <= 0) { this.pickTimer = 0.2; this.pickPoints(ctx); }
     // the wave: reduced motion → today's global step; an unlit Pharos → it starts from the town edge

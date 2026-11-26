@@ -1116,10 +1116,11 @@ for i, (p, t, nrm) in enumerate(frames[:-1]):
         r = rng_bw.uniform(1.4, 2.5)
         off = nrm * (BWW / 2 + 1.2 + k * 1.8 + rng_bw.uniform(-0.4, 0.4)) + t * rng_bw.uniform(-1.6, 1.6)
         c = p + off
-        merge(rub, bm_ico(r, (c.x, c.y, rng_bw.uniform(-0.2, 0.9) - k * 0.6), 1, (1.3, 1.0, 0.8), seed=i * 7 + k, amp=0.3))
+        z_top = rng_bw.uniform(0.35, 1.45) - k * 0.48
+        yaw_bw = math.atan2(t.y, t.x) + rng_bw.uniform(-0.6, 0.6)
+        reef_outcrop(rub, c.x, c.y, r, z_top, yaw_bw, seed=i * 19 + k + 501, n_slabs=(2 if k == 0 else 1), z_bot=-3.0)
         CIRCLES.append((c.x, c.y, r * 1.15))
-obj('breakwater_rubble', rub, face=lambda q: ((PAL['rock_wet'] if q.center.z < 0.45 else (PAL['rock'] if q.normal.z < 0.6 else PAL['rock_light'])), PT['rock']),
-    family='breakwater', jitter=0.08)
+obj('breakwater_rubble', rub, face=reef_rock_face, family='breakwater', jitter=0.06)
 
 # Angular limestone riprap armour blocks at breakwater root (outer sea side) & mole roots (landward of all berths)
 riprap = bmesh.new()
@@ -1166,8 +1167,9 @@ HL_POS = Vector((hp.x, hp.y, 6.5))
 # light (green: the Grand Mole, red: the Inner) with its gallery and lantern
 set_coll(collection('marina', ROOTC))
 mcrest, mcop, mband = bmesh.new(), bmesh.new(), bmesh.new()
-mprom, mbench, mplant, mleaf, mtrunk = bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new(), bmesh.new()
+mprom, mbench, mplant = bmesh.new(), bmesh.new(), bmesh.new()
 MOLE_TOWERS = []
+MOLE_TREE_SITES = []
 mopus, mamph, mrope, mcap, mexed, mbronze = (bmesh.new() for _ in range(6))     # 08-T7 (prettier): the mole's rhythm
 _t7 = random.Random(707)
 
@@ -1267,12 +1269,8 @@ for m in CJ.get('moles', []):
                 _bench(mbench, p2 + n2 * sd * 0.45 + t2 * 2.4, ang + (0 if sd < 0 else math.pi), Z_SHORE + 0.26)
         else:
             merge(mplant, bm_cyl(0.95, 0.8, 0.75, 10, (p2.x, p2.y, Z_SHORE + 0.2)))
-            hh = _mrng.uniform(4.2, 5.2)
-            merge(mtrunk, bm_cyl(0.16, 0.11, hh * 0.6, 5, (p2.x, p2.y, Z_SHORE + 0.8)))
-            for kk in range(3):
-                o = Vector((_mrng.uniform(-0.5, 0.5), _mrng.uniform(-0.5, 0.5), 0))
-                merge(mleaf, bm_ico(1.25 - 0.18 * kk, (p2.x + o.x, p2.y + o.y, Z_SHORE + 0.8 + hh * (0.6 + 0.13 * kk)), 1, (1, 1, 0.85),
-                                    seed=_mrng.randint(0, 99), amp=0.22))
+            hh = _mrng.uniform(3.9, 4.9)
+            MOLE_TREE_SITES.append((p2.x, p2.y, Z_SHORE + 0.78, hh, ang + _mrng.uniform(-0.5, 0.5)))
         s_ += 24.0; k_ += 1
     # the pierhead bastion: a round drum to the sea floor, coping, Ethereum's band, benches round its rim
     merge(mcrest, bm_cyl(hr, hr, Z_SHORE - SEA_FLOOR, 28, (h.x, h.y, SEA_FLOOR)))
@@ -1298,8 +1296,6 @@ obj('mole_coping', mcop, PAL['quay'], PT['plain'], family='quay', jitter=0.08)
 obj('mole_promenade', mprom, face=lambda q: ((lin('#B2AA98'), PT['ashlar']) if q.normal.z > 0.9 else (PAL['granite'], PT['ashlar'])), family='quay', jitter=0.05)
 obj('mole_benches', mbench, PAL['lime'], PT['ashlar'], family='prop_bench', bevel=0.03)
 obj('mole_planters', mplant, PAL['granite'], PT['ashlar'], family='quay', jitter=0.05)
-obj('mole_tree_trunks', mtrunk, PAL['timber_dark'], PT['plain'], family='veg')
-obj('mole_tree_crowns', mleaf, face=lambda q: ((lin('#7D9A4A') if q.normal.z > 0.3 else lin('#5E7D3C')), PT['leaf']), family='veg', jitter=0.08)
 obj('mole_chain_band', mband, ETH_BAND, PT['plain'], family='quay', jitter=0.0)
 obj('mole_opus_bands', mopus, lin('#8F8676'), PT['cobble'], family='quay', jitter=0.05)
 obj('mole_amphorae', mamph, face=lambda q: ((lin('#B0663E') if q.index % 5 else lin('#C69B74')), PT['plain']), family='prop_crate', jitter=0.08)

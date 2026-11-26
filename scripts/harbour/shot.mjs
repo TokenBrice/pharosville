@@ -434,7 +434,7 @@ async function beforeCapture(index) {
   captureStates.push(await page.evaluate(() => {
     const e = window.__harbour, gl = e.ctx.renderer.getContext();
     return { viewport: { width: innerWidth, height: innerHeight, backingWidth: gl.drawingBufferWidth, backingHeight: gl.drawingBufferHeight, touch: navigator.maxTouchPoints > 0 },
-      dpr: e.ctx.renderer.getPixelRatio(), effectiveState: { hour: e.ctx.timeOfDay.clockHour, simulationElapsed: e.clock.elapsed, quality: window.__harbourStats?.quality,
+      dpr: window.__harbourStats?.dpr ?? e.ctx.renderer.getPixelRatio(), displayDpr: e.ctx.renderer.getPixelRatio(), effectiveState: { hour: e.ctx.timeOfDay.clockHour, simulationElapsed: e.clock.elapsed, quality: window.__harbourStats?.quality,
         weather: e.ctx.services.get("weather")?.state ?? null, season: e.ctx.services.get("season") ?? null,
         revision: window.__harbourStats?.renderedRevision, boats: window.__harbourStats?.renderedBoats, readings: e.ctx.services.get("readings") ?? null } };
   }));

@@ -1,7 +1,7 @@
 import type * as THREE from "three";
 import type { EffectComposer } from "postprocessing";
 
-type State = { tier: string; dpr: number; width: number; height: number };
+type State = { tier: string; dpr: number; displayDpr?: number; width: number; height: number };
 type Sample = { q: WebGLQuery; frame: number; label: string; epoch: number };
 type Frame = { state: State; passes: Record<string, number>; submissions: Record<string, number> };
 const MAX_QUERIES = 4096;
@@ -81,7 +81,9 @@ export class GpuPassProfiler {
         }
         if (!this.frames.has(this.frame)) {
           const canvas = renderer.domElement;
-          this.frames.set(this.frame, { state: { tier: window.__harbourStats?.quality ?? "boot", dpr: renderer.getPixelRatio(), width: canvas.width, height: canvas.height }, passes: {}, submissions: {} });
+          const displayDpr = renderer.getPixelRatio();
+          const renderDpr = window.__harbourStats?.dpr ?? displayDpr;
+          this.frames.set(this.frame, { state: { tier: window.__harbourStats?.quality ?? "boot", dpr: renderDpr, displayDpr, width: canvas.width, height: canvas.height }, passes: {}, submissions: {} });
         }
         const row = this.frames.get(this.frame)!;
         const submission = `${label}/${this.materialLabel}`;
@@ -150,6 +152,10 @@ export class GpuPassProfiler {
           : n === "hb_wake_decay_rgba" ? "wake-decay"
           : n === "hb_wake_stationary" ? "wake-stationary"
           : n === "hb_wake_ribbon" ? "wake-ribbons"
+          : n === "hb_godrays_mask" ? "godrays-mask"
+          : n === "hb_godrays_blur" ? "godrays-blur"
+          : n === "hb_fsr_easu" ? "fsr1-easu"
+          : n === "hb_fsr_rcas" ? "fsr1-rcas"
           : u?.uLobes ? "cloud-atlas"
           : u?.uRange && u?.uBanks ? "sky-band"
           : u?.uSpread && u?.uPrev ? "wake-decay"

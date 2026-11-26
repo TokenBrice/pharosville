@@ -111,7 +111,7 @@ export class WeatherSystem implements WorldSystem {
     this.lightning = new lightningMod.Lightning();
     this.lightning.forced = import.meta.env.DEV && this.q.get("strike") === "1";
     this.rainbow = new rainbowMod.Rainbow();
-    ctx.scene.add(this.precip.fall, this.precip.ground, this.lightning.mesh, this.rainbow.mesh);
+    ctx.scene.add(this.precip.fall, this.precip.ground, this.precip.squall, this.lightning.mesh, this.rainbow.mesh);
     this.fallbackWeights = weightsForSeason(calendarSeason(this.q));
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- getters below read live system state
@@ -133,9 +133,9 @@ export class WeatherSystem implements WorldSystem {
 
   async prepareIdle(ctx: EngineContext): Promise<void> {
     if (!this.precip || !this.lightning || !this.rainbow) return;
-    // Uniform-only rain/snow/flash/recovery transitions share these four programs. No weather is advanced.
+    // Uniform-only rain/snow/squall/flash/recovery transitions share these five programs. No weather is advanced.
     const root = new THREE.Group();
-    root.children = [this.precip.fall, this.precip.ground, this.lightning.mesh, this.rainbow.mesh];
+    root.children = [this.precip.fall, this.precip.ground, this.precip.squall, this.lightning.mesh, this.rainbow.mesh];
     await ctx.services.get("preparation")?.prepareGroup(root);
   }
 
@@ -308,11 +308,21 @@ export class WeatherSystem implements WorldSystem {
     const hl = 0.2126 * hemi.r + 0.7152 * hemi.g + 0.0722 * hemi.b;
     const sl = 0.2126 * U.uSunColor.value.r + 0.7152 * U.uSunColor.value.g + 0.0722 * U.uSunColor.value.b;
     this.amb.setRGB(0.92, 0.97, 1.05).multiplyScalar((hl * 2.2 + sl * 0.05) * (1 - 0.3 * s.gloom));
-    this.viewport.set(ctx.renderer.domElement.width, ctx.renderer.domElement.height);
+    const res = U.uResolution?.value;
+    this.viewport.set(
+      res && res.x > 1 ? res.x : ctx.renderer.domElement.width,
+      res && res.y > 1 ? res.y : ctx.renderer.domElement.height,
+    );
     const spray = THREE.MathUtils.smoothstep(s.windNow, 0.62, 0.98) * (s.level == null ? 0 : THREE.MathUtils.smoothstep(s.level, 2.5, 3.6));
+    const seaAmp = ctx.services.get("ocean")?.shared.uSea.value.x ?? 0;
+    const precipGate = THREE.MathUtils.smoothstep(s.rain + s.snow * 0.6, 0.05, 0.25);
+    const stormSea = Math.max(
+      THREE.MathUtils.smoothstep(seaAmp, 0.3, 0.85),
+      THREE.MathUtils.smoothstep(s.windNow, 0.6, 1.0),
+    ) * precipGate;
     this.precip.update({
       camera: cam, distance: rig.distance, target: this.target, rain: s.rain, snow: s.snow, wind: this.windVec,
-      spray, flash: this.lightning.flash, ambient: this.amb, time: ptime, viewport: this.viewport, budget: this.precipBudget[tier],
+      spray, stormSea, flash: this.lightning.flash, ambient: this.amb, time: ptime, viewport: this.viewport, budget: this.precipBudget[tier],
       ...this.sheets(ctx, frame, tier),
     });
 

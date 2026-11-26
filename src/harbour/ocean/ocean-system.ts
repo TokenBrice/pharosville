@@ -31,6 +31,7 @@ import type { FftWaveSystem } from "./fft/fft-system";
 import type { ProjectedGrid } from "./projected-grid";
 import type { PlanarMirror } from "./planar-mirror";
 import type { HiZSSR } from "./hiz-ssr";
+import type { SprayService, SpraySystem } from "./spray-system";
 import type { WakeCollarService, WakeRibbonService } from "../engine/services";
 import type { QualitySettings, QualityTier } from "../engine/quality";
 import { abortable } from "../engine/transport";
@@ -178,6 +179,7 @@ export class OceanSystem implements WorldSystem {
   private fftEnabled = false;
   private mirrorEnabled = false;
   private planarEnabled = false;
+  private sprayEnabled = false;
   private reflectMode: 0 | 1 | 2 = 0;
   private captureHalfRes = true;
   private inPreparation = false;
@@ -190,6 +192,9 @@ export class OceanSystem implements WorldSystem {
   private wakeRibbons: WakeRibbons | null = null;
   private planarMirror: PlanarMirror | null = null;
   private hizSsr: HiZSSR | null = null;
+  private spray: SpraySystem | null = null;
+  private reefAnchors: Array<[number, number, number, number]> = [];
+  private lastWindDir: [number, number] = [0.8, -0.6];
   private readonly unregPrep: Array<() => void> = [];
   private cachedMirrorFrustum: THREE.Frustum | null = null;
   private readonly shoalScratch: [number, number, number] = [0, 0, 0];
@@ -217,6 +222,7 @@ export class OceanSystem implements WorldSystem {
     this.fftEnabled = extraEnabled("fft");
     this.mirrorEnabled = extraEnabled("mirror");
     this.planarEnabled = this.mirrorEnabled && extraEnabled("planar");
+    this.sprayEnabled = extraEnabled("spray");
 
     const quality = ctx.services.get("quality");
     const initTier: QualityTier = quality?.tier ?? "medium";
@@ -233,6 +239,7 @@ export class OceanSystem implements WorldSystem {
       fftMod,
       planarMod,
       ssrMod,
+      sprayMod,
     ] = await abortable(
       Promise.all([
         import("./ocean-material"),
@@ -244,6 +251,7 @@ export class OceanSystem implements WorldSystem {
         needUpper && this.fftEnabled ? import("./fft/fft-system") : Promise.resolve(null),
         needPlanar ? import("./planar-mirror") : Promise.resolve(null),
         needUpper && this.mirrorEnabled ? import("./hiz-ssr") : Promise.resolve(null),
+        needUpper && this.sprayEnabled ? import("./spray-system") : Promise.resolve(null),
       ]),
       ctx.signal,
     );
@@ -340,6 +348,13 @@ export class OceanSystem implements WorldSystem {
     };
 
     this.sceneCapture = new SceneCapture();
+    this.reefAnchors = this.buildReefSprayAnchors(layout);
+    if (sprayMod) {
+      this.spray = new sprayMod.SpraySystem({ capture: this.sceneCapture.uniforms });
+      this.spray.setReefAnchors(this.reefAnchors);
+      this.spray.setEnabled(this.sprayEnabled);
+      registerPrep(this.spray.preparationEntries());
+    }
     if (this.refractEnabled && causticsMod && seabedMod) {
       this.caustics = new causticsMod.CausticsPass({
         uTime: this.seaTime,
@@ -541,8 +556,10 @@ export class OceanSystem implements WorldSystem {
       const refractActive = this.refractEnabled && dpr >= 0.8;
       this.seabed?.setVisible(refractActive);
       if (!refractActive) this.sceneCapture?.release();
+      this.spray?.setTier(tier);
+      this.spray?.setEnabled(this.sprayEnabled);
       this.syncFeatures();
-      if (!low && (!this.projectedGrid || !this.wakeRibbons || (high && this.planarEnabled && !this.planarMirror))) {
+      if (!low && (!this.projectedGrid || !this.wakeRibbons || (this.sprayEnabled && !this.spray) || (high && this.planarEnabled && !this.planarMirror))) {
         void this.ensureTierModules(tier, registerPrep).then(() => {
           if (!this.disposed && this.tier !== "low") this.applyQualityFn?.(this.tier, this.lastQualitySettings, this.lastDpr, false);
         });
@@ -615,6 +632,7 @@ export class OceanSystem implements WorldSystem {
 
     ctx.scene.add(this.mesh, this.collars.mesh);
     if (this.seabed) ctx.scene.add(this.seabed.mesh);
+    if (this.spray) ctx.scene.add(this.spray.mesh);
 
     const q = new URLSearchParams(location.search);
     const dbg = q.get("debugWake");
@@ -668,7 +686,7 @@ export class OceanSystem implements WorldSystem {
       },
       prepareTier: (tier) => {
         if (tier === "low") return;
-        const needUpper = !this.projectedGrid || !this.wakeRibbons || (this.fftEnabled && !this.fft) || (this.mirrorEnabled && !this.hizSsr);
+        const needUpper = !this.projectedGrid || !this.wakeRibbons || (this.fftEnabled && !this.fft) || (this.mirrorEnabled && !this.hizSsr) || (this.sprayEnabled && !this.spray);
         const needPlanar = tier === "high" && this.planarEnabled && !this.planarMirror;
         if (!needUpper && !needPlanar) return;
         return this.ensureTierModules(tier, registerPrep);
@@ -742,10 +760,47 @@ export class OceanSystem implements WorldSystem {
       },
     };
 
+    const getSpray = () => this.spray;
+    const sampleSprayWaterY = (x: number, z: number) => svc.heightAt(x, z);
+    const spraySvc: SprayService = {
+      get enabled() { return Boolean(getSpray()?.enabled); },
+      get activeCount() { return getSpray()?.activeCount ?? 0; },
+      get maxParticles() { return getSpray()?.maxParticles ?? 0; },
+      beginFrame: () => { getSpray()?.beginFrame(); },
+      pushBow: (x, z, vx, vz, bowLen, speed, impact, focusX, focusZ) => {
+        getSpray()?.pushBow(x, z, vx, vz, bowLen, speed, impact, focusX, focusZ);
+      },
+      pushOar: (x, z, vx, vz, beam, camDist, oarPhase) => {
+        getSpray()?.pushOar(x, z, vx, vz, beam, camDist, oarPhase);
+      },
+      setReefAnchors: (points) => {
+        getSpray()?.setReefAnchors(points);
+      },
+      flush: () => {
+        const spray = getSpray();
+        if (!spray || this.lite || !this.sprayEnabled) return;
+        // Runs right before composer.render() after FleetSystem queued bow/oar emitters, so Three.js
+        // render-list collection and GPU buffer upload see current frame visibility, count, and wave-relative heights.
+        spray.step(
+          this.lastDt,
+          this.time,
+          this.seaU.value.x,
+          this.lastWindDir[0],
+          this.lastWindDir[1],
+          ctx.uniforms.uSunColor.value,
+          ctx.uniforms.uAmbient.value,
+          ctx.uniforms.uNight.value,
+          this.clock ? this.clock.live : 1,
+          sampleSprayWaterY,
+        );
+      },
+    };
+
     ctx.services.set("ocean", svc);
     ctx.services.set("wake", wakeSvc);
     ctx.services.set("wakeCollars", this.collars satisfies WakeCollarService);
     ctx.services.set("wakeRibbons", ribbonSvc);
+    ctx.services.set("spray", spraySvc);
   }
 
   resize(width: number, height: number): void {
@@ -778,12 +833,13 @@ export class OceanSystem implements WorldSystem {
     const sig = this.ctxRef?.signal;
     if (!this.upperTierLoad) {
       this.upperTierLoad = (async () => {
-        const [projMod, ribMod, fftMod, ssrMod] = await abortable(
+        const [projMod, ribMod, fftMod, ssrMod, sprayMod] = await abortable(
           Promise.all([
             this.projectedGrid ? Promise.resolve(null) : import("./projected-grid"),
             this.wakeRibbons ? Promise.resolve(null) : import("./wake-ribbons"),
             !this.fft && this.fftEnabled ? import("./fft/fft-system") : Promise.resolve(null),
             !this.hizSsr && this.mirrorEnabled ? import("./hiz-ssr") : Promise.resolve(null),
+            !this.spray && this.sprayEnabled ? import("./spray-system") : Promise.resolve(null),
           ]),
           sig,
         );
@@ -805,6 +861,14 @@ export class OceanSystem implements WorldSystem {
         if (ssrMod && !this.hizSsr) {
           this.hizSsr = new ssrMod.HiZSSR();
           registerPrep(this.hizSsr.preparationEntries());
+        }
+        if (sprayMod && !this.spray && this.sceneCapture) {
+          this.spray = new sprayMod.SpraySystem({ capture: this.sceneCapture.uniforms });
+          this.spray.setTier(this.tier);
+          this.spray.setReefAnchors(this.reefAnchors);
+          this.spray.setEnabled(this.sprayEnabled);
+          this.ctxRef?.scene.add(this.spray.mesh);
+          registerPrep(this.spray.preparationEntries());
         }
       })();
     }
@@ -995,10 +1059,38 @@ export class OceanSystem implements WorldSystem {
     this.sdfVersion++;
   }
 
+  private buildReefSprayAnchors(layout: HarbourLayout): Array<[number, number, number, number]> {
+    const lines: Array<{ pts: Array<[number, number]>; closed: boolean }> = [];
+    const isl = layout.island;
+    if (isl?.breakwater?.length) lines.push({ pts: isl.breakwater as Array<[number, number]>, closed: false });
+    const shoals = layout.zones?.shoals?.polygon as Array<[number, number]> | undefined;
+    if (shoals?.length) lines.push({ pts: shoals, closed: true });
+    const out: Array<[number, number, number, number]> = [];
+    const STEP = 10;
+    for (const { pts, closed } of lines) {
+      const segs = closed ? pts.length : pts.length - 1;
+      for (let i = 0; i < segs; i++) {
+        const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % pts.length];
+        const len = Math.hypot(bx - ax, bz - az);
+        if (len < 1e-3) continue;
+        const nx = -(bz - az) / len, nz = (bx - ax) / len;
+        for (let s = 0; s < len; s += STEP) {
+          const x = ax + (bx - ax) * (s / len), z = az + (bz - az) * (s / len);
+          const cp = this.coastAt(x + nx * 6, z + nz * 6), cm = this.coastAt(x - nx * 6, z - nz * 6);
+          const sgn = cp >= cm ? 1 : -1;
+          if (Math.max(cp, cm) < 1.5) continue;
+          out.push([x + nx * sgn * 1.5, z + nz * sgn * 1.5, nx * sgn, nz * sgn]);
+        }
+      }
+    }
+    return out;
+  }
+
   update(frame: FrameState, ctx: EngineContext): void {
     this.lastDt = frame.delta;
     this.collars.beginFrame();
     this.wakeRibbons?.beginFrame();
+    this.spray?.beginFrame();
     this.syncFeatures();
 
     const fogAmt = THREE.MathUtils.smoothstep(ctx.services.get("readings")?.fog ?? 0, 0, 1);
@@ -1034,6 +1126,8 @@ export class OceanSystem implements WorldSystem {
     const wl = Math.hypot(wdx, wdz);
     if (wl > 1e-4) { wdx /= wl; wdz /= wl; this.wake.lee.set(wdx, wdz); }
     else { wdx = 0.8; wdz = -0.6; }
+    this.lastWindDir[0] = wdx;
+    this.lastWindDir[1] = wdz;
 
     // 3-cascade WebGL2 FFT + 64^2 CPU buoyancy mirror (High & Medium only)
     const storm = THREE.MathUtils.smoothstep(this.seaU.value.x, 0.3, 0.85);
@@ -1111,6 +1205,11 @@ export class OceanSystem implements WorldSystem {
     this.wakeRibbons = null;
     this.sceneCapture?.dispose();
     this.sceneCapture = null;
+    if (this.spray) {
+      ctx.scene.remove(this.spray.mesh);
+      this.spray.dispose();
+      this.spray = null;
+    }
     if (this.seabed) {
       ctx.scene.remove(this.seabed.mesh);
       this.seabed.dispose();
@@ -1147,5 +1246,6 @@ export class OceanSystem implements WorldSystem {
     ctx.services.delete("wake");
     ctx.services.delete("wakeCollars");
     ctx.services.delete("wakeRibbons");
+    ctx.services.delete("spray");
   }
 }
