@@ -7,6 +7,7 @@ import { SunRig } from "./sun";
 import { mergeStaticMeshes } from "../engine/static-merge";
 import { updateSway } from "./sway";
 import { graphicsValidity } from "../engine/graphics";
+import { enableReflectLayer } from "../ocean/reflect-layer";
 
 export const ISLAND_URL = "/harbour/island.glb";
 export const TERRAIN_SPLAT_URL = "/harbour/terrain-splat.webp";
@@ -77,6 +78,8 @@ export class IslandSystem implements WorldSystem {
       this.root = s.group;
     }
     this.root.name = this.root.name || "harbour-island";
+    // Enable LAYER_REFLECT before static-merge so merged island chunks inherit identical layer masks (M7).
+    enableReflectLayer(this.root);
     // the island's four chunks never move: one draw per material (main pass and shadow pass) instead of four
     const chunks: THREE.Mesh[] = [];
     this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.name.startsWith("island_")) chunks.push(o as THREE.Mesh); });

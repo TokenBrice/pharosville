@@ -5,6 +5,7 @@ import type { WorldUniforms } from "../engine/uniforms";
 import { NO_SHADOW, SeaShadowMask, sunShadowUniforms } from "./sun-shadow";
 import { castFadeUniforms, contactShare, FIGURE_SHADOW_DIST, ShadowCasters, type CasterState, type CasterView } from "./shadow-casters";
 import { ContactShadows } from "./contact-shadows";
+import { enableLightReflectLayer } from "../ocean/reflect-layer";
 
 const UP_Y = new THREE.Vector3(0, 1, 0);
 const UP_Z = new THREE.Vector3(0, 0, 1);
@@ -76,6 +77,9 @@ export class SunRig {
     k.shadow.camera.near = 1;
     k.shadow.camera.far = 2000;
     this.fill.castShadow = false;
+    enableLightReflectLayer(k);
+    enableLightReflectLayer(this.fill);
+    enableLightReflectLayer(this.hemi);
     this.group.add(k, k.target, this.fill, this.fill.target, this.hemi, this.contacts.mesh);
     this.group.name = "harbour-sun-rig";
   }
@@ -90,7 +94,12 @@ export class SunRig {
     // the kit's shadow twin drops bare crowns by these (world/materials.ts kitDepth): a season step re-renders the map
     this.casters.watch(u.uFoliage); this.casters.watch(u.uSeasonPhase);
     const before = this.sceneBeforeRender = scene.onBeforeRender;
-    scene.onBeforeRender = (...args: Parameters<THREE.Object3D["onBeforeRender"]>) => { before.apply(scene, args); this.finalize(); };
+    scene.onBeforeRender = (...args: Parameters<THREE.Object3D["onBeforeRender"]>) => {
+      before.apply(scene, args);
+      const cam = args[2];
+      if (this.ctx && cam && cam !== this.ctx.camera) return;
+      this.finalize();
+    };
   }
 
   private detach(): void {

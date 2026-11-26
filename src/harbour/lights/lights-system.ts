@@ -15,6 +15,7 @@ import { defaultSeaBounds, type Bounds4 } from "../ocean/sea-sdf";
 import { DynPool, dynPoolBoundsFor, GLINT_CANDIDATE_STRIDE, MAX_NIGHT_GLINTS } from "./dyn-pool";
 import type { DynPoolService } from "../engine/services";
 import type { OceanService } from "../ocean/ocean-system";
+import { enableLightReflectLayer } from "../ocean/reflect-layer";
 
 const MAX_POINT = 16;
 const POOL_RES = 2048;
@@ -312,6 +313,7 @@ export class LightsSystem implements WorldSystem {
     for (let i = 0; i < MAX_POINT; i++) {
       const p = new THREE.PointLight(0xffae57, 0, 18, 2);
       p.castShadow = false;
+      enableLightReflectLayer(p);
       this.points.push(p);
       ctx.scene.add(p);
     }

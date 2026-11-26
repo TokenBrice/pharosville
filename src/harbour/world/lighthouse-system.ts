@@ -8,6 +8,7 @@ import { getHarbourMaterials } from "./materials";
 import { limewash } from "./limewash";
 import { getLightsStore } from "../lights/lights-service";
 import { LAMP_WAVE_SPREAD, lampGlow, lampWaveUniforms } from "../lights/lamp-wave";
+import { enableLightReflectLayer, enableReflectLayer } from "../ocean/reflect-layer";
 
 export const LIGHTHOUSE_URL = "/harbour/lighthouse.glb";
 
@@ -82,6 +83,8 @@ export class LighthouseSystem implements WorldSystem {
     this.light.name = "pharos-fire-light";
     this.upLight.castShadow = false;
     this.upLight.name = "pharos-statue-light";
+    enableLightReflectLayer(this.light);
+    enableLightReflectLayer(this.upLight);
     ctx.scene.add(this.light, this.upLight);
     // deterministic start phase from the wall clock, so every viewer sees the same sweep
     this.phase = ((Date.now() / 1000) % this.period) / this.period;
@@ -162,6 +165,8 @@ export class LighthouseSystem implements WorldSystem {
     // E03a: the hero's stone prints +6 % (limewash.ts), before the merge copies the colours
     const tower = node("tower") as THREE.Mesh | undefined;
     if (tower?.isMesh) limewash(tower.geometry);
+    // Enable LAYER_REFLECT before static-merge so merged Pharos meshes reflect in High PlanarMirror (M7).
+    enableReflectLayer(root);
     // the tower and its crowning statue never move (the mirror does): one draw, one shadow draw
     const still = ["tower", "statue"].map(node).filter((o): o is THREE.Mesh => !!(o as THREE.Mesh | undefined)?.isMesh);
     if (still.length === 2 && still[0].parent === still[1].parent && still[0].parent) mergeStaticMeshes(still, still[0].parent, "pharos");

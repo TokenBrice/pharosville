@@ -43,8 +43,9 @@ describe("WakeCollars (§6.2.2, High-only D-7)", () => {
     expect(mat.blendDst).toBe(THREE.OneMinusSrcAlphaFactor);
     expect(mat.blendSrcAlpha).toBe(THREE.ZeroFactor);
     expect(mat.blendDstAlpha).toBe(THREE.OneFactor);
-    expect(WAKE_COLLAR_VERT).toContain("gerstnerDisp(xz, uTime, amp)");
-    expect(WAKE_COLLAR_VERT).toContain("textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0).r");
+    expect(WAKE_COLLAR_VERT).toContain("hbShoreNormal(uSdf, suv, coast, inside)");
+    expect(WAKE_COLLAR_VERT).toContain("hbOceanDisp(xz, uTime, amp, damp, camD, depth, coast, shoreN)");
+    expect(WAKE_COLLAR_VERT).toContain("textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0)");
     expect(WAKE_COLLAR_FRAG).toContain("hbSwellPhase(vWorld.xz, uTime)");
     expect(WAKE_COLLAR_FRAG).toContain("vOarPhase + xOar * 0.18");
     collars.dispose();

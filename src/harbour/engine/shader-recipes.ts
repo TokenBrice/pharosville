@@ -8,9 +8,12 @@ import { seasonWeights } from "../season/calendar";
 import { createFleetMaterials, type FleetUniforms } from "../fleet/fleet-material";
 import { HouseFlags } from "../fleet/house-flags";
 import { OCEAN_VERT, OCEAN_FRAG } from "../ocean/ocean-material";
-import { MIRROR_FRAG, MIRROR_VERT, OCEAN_FRAG_MIRROR } from "../ocean/mirror-pass";
 import { SEABED_VERT, SEABED_FRAG } from "../ocean/seabed";
 import { CAUSTICS_VERT, CAUSTICS_FRAG } from "../ocean/caustics-pass";
+import { FFT_FULLSCREEN_VERT, FFT_H0_FRAG, FFT_SPEC_FRAG, FFT_BFLY_FRAG, FFT_PACK_DISP_FRAG, FFT_PACK_SLOPE_FRAG } from "../ocean/fft/fft-system";
+import { WAKE_DECAY_RGBA_FRAG, WAKE_STATIONARY_VERT, WAKE_STATIONARY_FRAG } from "../ocean/wake";
+import { WAKE_RIBBON_VERT, WAKE_RIBBON_FRAG } from "../ocean/wake-ribbons";
+import { HIZ_FULLSCREEN_VERT, HIZ_INIT_FRAG, HIZ_MIP_FRAG, SSR_TRACE_FRAG, SSR_DENOISE_FRAG } from "../ocean/hiz-ssr";
 import { NO_SHADOW } from "../world/sun-shadow";
 import { FULLSCREEN_VERT } from "../ocean/gpu-bake";
 import { BeamEffect, BeamSystem, ShimmerEffect, HALO_VERT, HALO_FRAG } from "../beam/beam-system";
@@ -124,16 +127,25 @@ export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void 
       material.customProgramCacheKey = () => `hb_ocean_${Number(biolum)}_${Number(lite)}`;
       emit(`ocean/${biolum ? "summer" : "other"}/${lite ? "low" : "full"}`, material); material.dispose();
     }
-    // E35 (extras +mirror): Medium and High share the mirror's ocean; Low keeps the lite ocean
-    for (const biolum of [false, true]) {
-      const material = new THREE.ShaderMaterial({ vertexShader: OCEAN_VERT, fragmentShader: OCEAN_FRAG_MIRROR, defines: biolum ? { HB_BIOLUM: "" } : {} });
-      material.customProgramCacheKey = () => `hb_ocean_${Number(biolum)}_0_m`;
-      emit(`ocean/${biolum ? "summer" : "other"}/full-mirror`, material); material.dispose();
-    }
     const seabedMat = new THREE.ShaderMaterial({ vertexShader: SEABED_VERT, fragmentShader: SEABED_FRAG, uniforms: { uKeyShadowDepth: { value: NO_SHADOW } } });
     emit("ocean/seabed", seabedMat); seabedMat.dispose();
     raw("ocean/caustics", CAUSTICS_VERT, CAUSTICS_FRAG);
-    raw("post/mirror", MIRROR_VERT, MIRROR_FRAG);
+    const raw3 = (id: string, vertexShader: string, fragmentShader: string) => {
+      const material = new THREE.ShaderMaterial({ vertexShader, fragmentShader, glslVersion: THREE.GLSL3 });
+      emit(id, material); material.dispose();
+    };
+    raw3("ocean/fft-h0", FFT_FULLSCREEN_VERT, FFT_H0_FRAG);
+    raw3("ocean/fft-spec", FFT_FULLSCREEN_VERT, FFT_SPEC_FRAG);
+    raw3("ocean/fft-bfly", FFT_FULLSCREEN_VERT, FFT_BFLY_FRAG);
+    raw3("ocean/fft-pack-disp", FFT_FULLSCREEN_VERT, FFT_PACK_DISP_FRAG);
+    raw3("ocean/fft-pack-slope", FFT_FULLSCREEN_VERT, FFT_PACK_SLOPE_FRAG);
+    raw("ocean/wake-decay-rgba", FULLSCREEN_VERT, WAKE_DECAY_RGBA_FRAG);
+    raw("ocean/wake-stationary", WAKE_STATIONARY_VERT, WAKE_STATIONARY_FRAG);
+    raw("ocean/wake-ribbon", WAKE_RIBBON_VERT, WAKE_RIBBON_FRAG);
+    raw("ocean/hiz-init", HIZ_FULLSCREEN_VERT, HIZ_INIT_FRAG);
+    raw("ocean/hiz-mip", HIZ_FULLSCREEN_VERT, HIZ_MIP_FRAG);
+    raw("ocean/ssr-trace", HIZ_FULLSCREEN_VERT, SSR_TRACE_FRAG);
+    raw("ocean/ssr-denoise", HIZ_FULLSCREEN_VERT, SSR_DENOISE_FRAG);
     raw("beam/halo", HALO_VERT, HALO_FRAG);
     for (const [name, vertex, fragment] of [
       ["flame", FLAME_VERT, FLAME_FRAG], ["ember", EMBER_VERT, EMBER_FRAG], ["glow", GLOW_VERT, GLOW_FRAG], ["plume", PLUME_VERT, PLUME_FRAG],

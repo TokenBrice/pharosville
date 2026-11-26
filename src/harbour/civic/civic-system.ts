@@ -15,6 +15,7 @@ import { Shipyard } from "./shipyard";
 import { Workers, type WorkerSlot } from "./workers";
 import { gradeTally, launchedIds, topMovers, type ChainMove, type HullStage, type PrelaunchBook, type PrelaunchCoin } from "./yard";
 import { paintCrestFlag, paintFrieze, paintGradeBoard, paintRegisterFlag, paintWeatherBoard } from "./paint";
+import { enableReflectLayer } from "../ocean/reflect-layer";
 
 /**
  * CIVIC: the P6 utility quarter (D19–D21). Loads public/harbour/civic/<kind>.glb at every layout.civic plot
@@ -199,6 +200,8 @@ export class CivicSystem implements WorldSystem {
     // includes the yard cranes' treadwheels, whose turning kept the still shadow map re-rendering (world/shadow-casters.ts)
     for (const p of this.plots) p.nodes.forEach((o, name) => { if (/^(press_\d+|wheel|crane_\d+_wheel)$/.test(name)) o.castShadow = false; });
 
+    // Enable LAYER_REFLECT before mergeStatic so merged civic plots inherit identical layer masks (M7).
+    for (const p of this.plots) enableReflectLayer(p.root);
     // one draw per material for every still part of every building
     for (const m of mergeStatic(this.plots.map((p) => p.root))) this.group.add(m);
     ctx.scene.add(this.group);
@@ -211,6 +214,7 @@ export class CivicSystem implements WorldSystem {
 
     // the painted boards and flags (one atlas, one draw)
     this.boards = new CivicBoards(2048, ctx.renderer, ctx.services.get("preparation"), ctx.signal);
+    enableReflectLayer(this.boards.mesh);
     this.group.add(this.boards.mesh);
     this.placeBoards(byKind, ctx);
     await this.boards.stage();
@@ -235,6 +239,7 @@ export class CivicSystem implements WorldSystem {
       try { await this.boards.stage(); } catch (error) { yard.dispose(); throw error; }
       if (this.disposed) { yard.dispose(); return; }
       this.yard = yard;
+      enableReflectLayer(yard.group);
       this.group.add(yard.group);
       if (this.model) yard.setLaunched(launchedIds(this.book, this.model.boats));
       this.buildPickables();

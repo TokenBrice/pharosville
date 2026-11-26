@@ -2034,40 +2034,28 @@
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },
   "ocean/other/full": {
-    "vertex": "d801defa72edbf61683c1315fd05162e4807fd76ec0b96ba37fd634e9096311b",
-    "fragment": "7c29964b513d49f6a37af8f944a223fce7f5dbdcd9fe8068b9520094b1aee5dd",
+    "vertex": "f996f1da97fa84fac16178003e7d3c826b441c2ffcc8418076c40b374a8e2443",
+    "fragment": "a87e94b35337e307bc0504287e0808a5b4330723e18dc05a4e882ea80b9f1e5b",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "hb_ocean_0_0"
   },
   "ocean/other/low": {
-    "vertex": "d801defa72edbf61683c1315fd05162e4807fd76ec0b96ba37fd634e9096311b",
-    "fragment": "7c29964b513d49f6a37af8f944a223fce7f5dbdcd9fe8068b9520094b1aee5dd",
+    "vertex": "f996f1da97fa84fac16178003e7d3c826b441c2ffcc8418076c40b374a8e2443",
+    "fragment": "a87e94b35337e307bc0504287e0808a5b4330723e18dc05a4e882ea80b9f1e5b",
     "defines": "039bc0d655528a22799202c5ae8241ae4293ee5a2fa2a599d2715a1269a0ab43",
     "cacheKey": "hb_ocean_0_1"
   },
   "ocean/summer/full": {
-    "vertex": "d801defa72edbf61683c1315fd05162e4807fd76ec0b96ba37fd634e9096311b",
-    "fragment": "7c29964b513d49f6a37af8f944a223fce7f5dbdcd9fe8068b9520094b1aee5dd",
+    "vertex": "f996f1da97fa84fac16178003e7d3c826b441c2ffcc8418076c40b374a8e2443",
+    "fragment": "a87e94b35337e307bc0504287e0808a5b4330723e18dc05a4e882ea80b9f1e5b",
     "defines": "06eef0b8d439c3b1871505c70ad3e8bbd91a744954bd20a8d8037451f270b7e5",
     "cacheKey": "hb_ocean_1_0"
   },
   "ocean/summer/low": {
-    "vertex": "d801defa72edbf61683c1315fd05162e4807fd76ec0b96ba37fd634e9096311b",
-    "fragment": "7c29964b513d49f6a37af8f944a223fce7f5dbdcd9fe8068b9520094b1aee5dd",
+    "vertex": "f996f1da97fa84fac16178003e7d3c826b441c2ffcc8418076c40b374a8e2443",
+    "fragment": "a87e94b35337e307bc0504287e0808a5b4330723e18dc05a4e882ea80b9f1e5b",
     "defines": "bfe2b2702ed6edcde69cac16c5e4a295d4b957096ed927c50269b2e90c64e2d3",
     "cacheKey": "hb_ocean_1_1"
-  },
-  "ocean/other/full-mirror": {
-    "vertex": "d801defa72edbf61683c1315fd05162e4807fd76ec0b96ba37fd634e9096311b",
-    "fragment": "eab9d114b7d2ab7851dcbc07fe918c43e698b39dc126a2f6a087f2942c6ae4f1",
-    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-    "cacheKey": "hb_ocean_0_0_m"
-  },
-  "ocean/summer/full-mirror": {
-    "vertex": "d801defa72edbf61683c1315fd05162e4807fd76ec0b96ba37fd634e9096311b",
-    "fragment": "eab9d114b7d2ab7851dcbc07fe918c43e698b39dc126a2f6a087f2942c6ae4f1",
-    "defines": "06eef0b8d439c3b1871505c70ad3e8bbd91a744954bd20a8d8037451f270b7e5",
-    "cacheKey": "hb_ocean_1_0_m"
   },
   "ocean/seabed": {
     "vertex": "5c0ae2fcb99379ec5cd4f53f09b39fa06eb6655cb2040371125f9dbc455fe03a",
@@ -2076,14 +2064,80 @@
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },
   "ocean/caustics": {
-    "vertex": "63086cb44238cce5e0d8a308e37481af6a276858ef007252b1028702559d0129",
+    "vertex": "735e8ba64c3d1c4e31664e5c054efbcaef433afe23954508a823c3cb57bf9c7a",
     "fragment": "88622dd8fff9d0d74d119975c7bf25dc658b1103888d620f9121c013aa1cabec",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },
-  "post/mirror": {
-    "vertex": "59f31270de2905d1616bd7fd5c94ee98465ebd722739c0d893a24dc440cbafde",
-    "fragment": "d8d12714dee1d471f89809a5b15497e2835eb376a0cfd5502f21ed353015d04b",
+  "ocean/fft-h0": {
+    "vertex": "a34abe995235dffdab7455aa9f92cb7330fb2799b22a9086d8b742853477d7c2",
+    "fragment": "15dfbb2755d83f7f47f7eb0aabb215ada0588f9ebce07f5c419a1c6cde1f31fe",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/fft-spec": {
+    "vertex": "a34abe995235dffdab7455aa9f92cb7330fb2799b22a9086d8b742853477d7c2",
+    "fragment": "c24b69e69dca2b421d5ede0053ddd31742cdd2467623fbfc6a409623f45825c7",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/fft-bfly": {
+    "vertex": "a34abe995235dffdab7455aa9f92cb7330fb2799b22a9086d8b742853477d7c2",
+    "fragment": "807d8ff8de0fb11a53711a9b5d63196b5726fb7c60b81f49862f9f7e7448aab7",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/fft-pack-disp": {
+    "vertex": "a34abe995235dffdab7455aa9f92cb7330fb2799b22a9086d8b742853477d7c2",
+    "fragment": "67559a8c47e461c804f862be9699818ecdec3bfcbc0c28a68ae823609b4a7278",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/fft-pack-slope": {
+    "vertex": "a34abe995235dffdab7455aa9f92cb7330fb2799b22a9086d8b742853477d7c2",
+    "fragment": "14f704c794ea4e1967d2b24350615e1b0a7df2a7445aa1c2d7beebe6fa99a8e0",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/wake-decay-rgba": {
+    "vertex": "9ab5768fc1c4c41da8e062d0edf15bc8f1a361e6b23c98ca5699b1c98c07f376",
+    "fragment": "cc54ecdb646d12d055263fcaef351b65eebc065ed218422c60a124e9d160c6a5",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/wake-stationary": {
+    "vertex": "b7b57d42e9f42fd4b69fc17902e0879879b54650a4206712e962217d7c53ba30",
+    "fragment": "c703d32ff2c378b1224ab8e19b9203d77c0e80836d32cc3ed31e7ba2ac05eea4",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/wake-ribbon": {
+    "vertex": "24015401ce8c171cd9913231d0e0774407cdd18e87bfe86785e71cb1adde9844",
+    "fragment": "7d3fff6c5cc2d051e1c2dec64e2bb3ce031499b5da57ce75a84c7be784a60737",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/hiz-init": {
+    "vertex": "24acda274cf09099cff5a5e7825a96586d98616c7dafef2e59ed066d3069a7be",
+    "fragment": "f53bf804f75199dc0c86c26f00b65d14aced349ad35d79dfb9da265dd830cf3e",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/hiz-mip": {
+    "vertex": "24acda274cf09099cff5a5e7825a96586d98616c7dafef2e59ed066d3069a7be",
+    "fragment": "4e4cdf9dd96108e29aea14ab0bb5dcb5453529f13042ec7c020864fc8065ae10",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/ssr-trace": {
+    "vertex": "24acda274cf09099cff5a5e7825a96586d98616c7dafef2e59ed066d3069a7be",
+    "fragment": "deed52f9288ace0f9d8eb25f26695dd001962678af86747a89d39cfcc2376cdc",
+    "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
+  },
+  "ocean/ssr-denoise": {
+    "vertex": "24acda274cf09099cff5a5e7825a96586d98616c7dafef2e59ed066d3069a7be",
+    "fragment": "8915713c04a88aa1bc82706b43ea547db13f73fc12c03e29d80ad150c62fe77b",
     "defines": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
     "cacheKey": "onBeforeCompile( /* shaderobject, renderer */ ) {}"
   },

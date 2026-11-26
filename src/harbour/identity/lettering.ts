@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { WorldUniforms } from "../engine/uniforms";
 import type { OceanService } from "../ocean/ocean-system";
-import { wavesGLSL } from "../ocean/waves";
+import { OCEAN_DISP_GLSL } from "../ocean/shaders/ocean-disp";
 import { labelFootprint, layoutLabel, type LabelSpec } from "./labels";
 import type { ChartFont } from "./types";
 
@@ -16,6 +16,8 @@ uniform float uTime;
 uniform vec4 uSea;
 uniform sampler2D uSdf;
 uniform vec4 uSdfBounds;
+uniform vec2 uSceneCenter;
+uniform vec3 uCameraPos;
 uniform float uCamDist;
 uniform float uSeaLevel;
 attribute vec4 aFade;
@@ -28,7 +30,7 @@ varying float vA;
 varying float vRule;
 varying vec3 vWorld;
 varying float vCoast;
-${wavesGLSL()}
+${OCEAN_DISP_GLSL}
 // how far outside the screen a point of the water is (0 = centre, 1 = the frame edge)
 float edgeOf(vec2 xz) {
   vec4 c = projectionMatrix * viewMatrix * vec4(xz.x, uSeaLevel, xz.y, 1.0);
@@ -40,9 +42,15 @@ void main() {
   vec3 p = position;
   vec2 suv = (p.xz - uSdfBounds.xy) / (uSdfBounds.zw - uSdfBounds.xy);
   float inside = step(0.0, suv.x) * step(suv.x, 1.0) * step(0.0, suv.y) * step(suv.y, 1.0);
-  float coast = mix(200.0, (textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0).r - 0.5) * 128.0, inside);
+  float mf = smoothstep(470.0, 560.0, length(p.xz - uSceneCenter));
+  vec4 sdf = textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0);
+  float coast = mix(200.0, (mix(sdf.r, 1.0, mf) - 0.5) * 128.0, inside);
+  float depth = mix(40.0, mix(sdf.g, 1.0, mf) * 40.0, inside);
   float damp = smoothstep(0.0, 34.0, coast) * 0.9 + 0.1 * smoothstep(-2.0, 2.0, coast);
-  p += gerstnerDisp(p.xz, uTime, uSea.x * damp);
+  float camD = length(p.xz - uCameraPos.xz);
+  float amp = uSea.x * damp * (1.0 - smoothstep(2500.0, 5000.0, camD));
+  vec2 shoreN = uFftOn > 0.5 ? hbShoreNormal(uSdf, suv, coast, inside) : vec2(0.0);
+  p += hbOceanDisp(p.xz, uTime, amp, damp, camD, depth, coast, shoreN);
   p.y += uSeaLevel + 0.22;
   float f = smoothstep(aFade.x, aFade.y, uCamDist) * (1.0 - smoothstep(aFade.z, aFade.w, uCamDist));
   // close in, the print steps back so the boats lead
@@ -131,6 +139,7 @@ export class ChartLettering {
   readonly mesh = new THREE.Group();
   private readonly mat: THREE.ShaderMaterial;
   private readonly haloMat: THREE.ShaderMaterial;
+  private readonly fftFallback: THREE.DataArrayTexture | null;
   readonly camDist = { value: 600 };
 
   constructor(specs: readonly LabelSpec[], font: ChartFont, atlas: THREE.Texture, u: WorldUniforms, ocean: OceanService | undefined, seaLevel: number) {
@@ -192,6 +201,7 @@ export class ChartLettering {
     atlas.anisotropy = 8;
     atlas.needsUpdate = true;
     const sh = ocean?.shared;
+    this.fftFallback = sh?.uFftAtlas ? null : Object.assign(new THREE.DataArrayTexture(new Uint8Array(6 * 4), 1, 1, 6), { needsUpdate: true });
     this.mat = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG,
       uniforms: {
@@ -199,6 +209,11 @@ export class ChartLettering {
         uSea: sh?.uSea ?? { value: new THREE.Vector4(0, 0, 0, 0) },
         uSdf: sh?.uSdf ?? { value: new THREE.DataTexture(new Uint8Array([255, 0, 255, 255]), 1, 1) },
         uSdfBounds: sh?.uSdfBounds ?? { value: new THREE.Vector4(-1e4, -1e4, 1e4, 1e4) },
+        uSceneCenter: sh?.uSceneCenter ?? { value: new THREE.Vector2() },
+        uFftAtlas: { value: null },
+        uFftOn: sh?.uFftOn ?? { value: 0 },
+        uFftScales: sh?.uFftScales ?? { value: new THREE.Vector4(1 / 509, 1 / 97, 1 / 17.3, 1) },
+        uFftWeights: sh?.uFftWeights ?? { value: new THREE.Vector4(1, 0.6, 0.35, 0.5) },
         uSeaLevel: { value: seaLevel },
         uCamDist: this.camDist,
         uAtlas: { value: atlas },
@@ -219,6 +234,7 @@ export class ChartLettering {
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6,
     });
     this.haloMat = this.mat.clone();
+    this.mat.uniforms.uFftAtlas = sh?.uFftAtlas ?? { value: this.fftFallback! };
     this.haloMat.uniforms = this.mat.uniforms;   // same uniform objects
     this.haloMat.defines = { HALO_PASS: 1 };
     const halo = new THREE.Mesh(g, this.haloMat), inkMesh = new THREE.Mesh(g, this.mat);
@@ -229,5 +245,5 @@ export class ChartLettering {
     this.mesh.add(halo, inkMesh);
   }
 
-  dispose(): void { (this.mesh.children[0] as THREE.Mesh).geometry.dispose(); this.mat.dispose(); this.haloMat.dispose(); }
+  dispose(): void { (this.mesh.children[0] as THREE.Mesh).geometry.dispose(); this.mat.dispose(); this.haloMat.dispose(); this.fftFallback?.dispose(); }
 }

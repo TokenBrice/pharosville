@@ -78,6 +78,7 @@ export class WeatherSystem implements WorldSystem {
   private fallbackWeights: SeasonWeights = [0, 1, 0, 0];
   private snapped = false;
   private anchorsBuilt = false;
+  private oceanBound = false;
   private elapsed = 0;
   private readonly windVec = new THREE.Vector2(0.84, -0.54);
   private readonly windTo = new THREE.Vector2(0.84, -0.54);
@@ -105,6 +106,7 @@ export class WeatherSystem implements WorldSystem {
     this.precip = new precipMod.Precipitation({
       uAOTex: mats.ao.uAOTex, uAOBounds: mats.ao.uAOBounds, uPoolTex: mats.pool.uPoolTex, uPoolBounds: mats.pool.uPoolBounds,
       uWindowGlow: ctx.uniforms.uWindowGlow, beam: getBeamUniforms(ctx), noise: this.fx.noise,
+      ocean: ctx.services.get("ocean")?.shared,
     });
     this.lightning = new lightningMod.Lightning();
     this.lightning.forced = import.meta.env.DEV && this.q.get("strike") === "1";
@@ -190,6 +192,10 @@ export class WeatherSystem implements WorldSystem {
 
   update(frame: FrameState, ctx: EngineContext): void {
     if (!this.precip || !this.lightning || !this.rainbow) return;
+    if (!this.oceanBound) {
+      const oc = ctx.services.get("ocean")?.shared;
+      if (oc) { this.precip.bindOcean(oc); this.oceanBound = true; }
+    }
     const dt = frame.delta;
     this.elapsed += dt;
     const U = ctx.uniforms;

@@ -108,7 +108,7 @@ export function worldGeometry(mesh: THREE.Mesh, extra: readonly string[] = []): 
  * originals. Returns the merged meshes (world space, identity transform), shadows set like the port does.
  */
 export function mergeStatic(roots: readonly THREE.Object3D[], filter: (m: THREE.Mesh) => boolean = isStatic): THREE.Mesh[] {
-  const groups = new Map<THREE.Material, THREE.Mesh[]>();
+  const groups = new Map<string, { mat: THREE.Material; mask: number; meshes: THREE.Mesh[] }>();
   for (const root of roots) {
     root.updateMatrixWorld(true);
     root.traverse((o) => {
@@ -117,13 +117,14 @@ export function mergeStatic(roots: readonly THREE.Object3D[], filter: (m: THREE.
       if (!filter(m)) { dequantizeForPatterns(m); return; }
       const mat = m.material as THREE.Material;
       if (!["hb_kit", "hb_window", "hb_emissive"].includes(mat.name)) return;
-      let gr = groups.get(mat);
-      if (!gr) { gr = []; groups.set(mat, gr); }
-      gr.push(m);
+      const key = `${mat.uuid}|${m.layers.mask}`;
+      let gr = groups.get(key);
+      if (!gr) { gr = { mat, mask: m.layers.mask, meshes: [] }; groups.set(key, gr); }
+      gr.meshes.push(m);
     });
   }
   const out: THREE.Mesh[] = [];
-  for (const [mat, gr] of groups) {
+  for (const { mat, mask, meshes: gr } of groups.values()) {
     const attrs = mat.name === "hb_window" ? [...ATTRS, "hbWin", "hbWinC"] : ATTRS;
     const total = gr.reduce((n, m) => n + m.geometry.attributes.position.count, 0);
     const geo = new THREE.BufferGeometry();
@@ -157,6 +158,7 @@ export function mergeStatic(roots: readonly THREE.Object3D[], filter: (m: THREE.
     setBounds(geo);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name = `civic-merged-${mat.name}`;
+    mesh.layers.mask = mask;
     mesh.castShadow = mat.name === "hb_kit";
     mesh.receiveShadow = true;
     // Only the new childless merged output is fixed; presses, cranes and their ancestors stay live.

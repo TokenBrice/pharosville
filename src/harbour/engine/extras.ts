@@ -1,4 +1,4 @@
-export const EXTRA_NAMES = ["crowns", "twilight", "nightsky", "storm", "precip", "score", "mirror", "supersample", "refract"] as const;
+export const EXTRA_NAMES = ["crowns", "twilight", "nightsky", "storm", "precip", "score", "mirror", "supersample", "refract", "fft", "planar"] as const;
 export type ExtraName = typeof EXTRA_NAMES[number];
 
 // v1.8.0 art director: the harbour mirror ships on (High only; the pass itself gates the tier).

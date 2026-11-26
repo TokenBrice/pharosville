@@ -7,6 +7,7 @@ import type { HarbourLayout } from "../layout/types";
 import { assetUrl, type AssetStore } from "./assets";
 import { extraEnabled } from "./extras";
 import { isAbort } from "./failure";
+import type { QualityTier } from "./quality";
 import { transport } from "./transport";
 
 export const VEGETATION_URL = "/harbour/flora/vegetation.glb";
@@ -54,7 +55,7 @@ export async function consumeBinary(assets: AssetStore, url: string): Promise<Ar
  * follow-up payloads download while it parses. Runs inside the Engine, so blocked viewports (which never construct one)
  * fetch nothing.
  */
-export function prefetchHarbour(assets: AssetStore): void {
+export function prefetchHarbour(assets: AssetStore, initialTier: QualityTier = "high"): void {
   if (assets.signal.aborted) return;
   const island = assets.prefetch(ISLAND_URL);
   void assets.prefetch(LIGHTHOUSE_URL);
@@ -68,12 +69,22 @@ export function prefetchHarbour(assets: AssetStore): void {
     void prefetchBinary(assets, VEGETATION_INSTANCES_URL).catch(() => {});
     void prefetchBinary(assets, GROUNDCOVER_URL).catch(() => {});
     void import("../world/shaders/terrain").catch(() => {});
+    void import("../ocean/ocean-material").catch(() => {});
     void import("../world/vegetation-system").catch(() => {});
     void import("../world/groundcover-system").catch(() => {});
     void import("../ocean/wake-collars").catch(() => {});
     if (extraEnabled("refract")) {
       void import("../ocean/seabed").catch(() => {});
       void import("../ocean/caustics-pass").catch(() => {});
+    }
+    if (initialTier !== "low") {
+      void import("../ocean/projected-grid").catch(() => {});
+      void import("../ocean/wake-ribbons").catch(() => {});
+      if (extraEnabled("fft")) void import("../ocean/fft/fft-system").catch(() => {});
+      if (extraEnabled("mirror")) {
+        if (initialTier === "high" && extraEnabled("planar")) void import("../ocean/planar-mirror").catch(() => {});
+        else void import("../ocean/hiz-ssr").catch(() => {});
+      }
     }
     void import("../weather/precip").catch(() => {});
     void import("../weather/lightning").catch(() => {});

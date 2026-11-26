@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { WakeCollarService } from "../engine/services";
 import { wavesGLSL } from "./waves";
+import { OCEAN_DISP_GLSL } from "./shaders/ocean-disp";
 import { SEA_PALETTE } from "./ocean-material";
 
 /**
@@ -12,9 +13,8 @@ import { SEA_PALETTE } from "./ocean-material";
  *  - gentle hbSwellPhase moored lap ring when slow / stationary
  *  - galley oar-splash ripple rings along port and starboard flanks (kind === 1, synced to hbOarStroke's catch cycle)
  *
- * Uses a subdivided per-instance XZ grid riding the exact `gerstnerDisp` + SDF coast damping as `OCEAN_VERT`,
- * drawn at `renderOrder = 61` with water-alpha-preserving `CustomBlending` (`ZeroFactor` / `OneFactor` on alpha)
- * so MirrorPass's water mask in the framebuffer alpha channel stays completely intact.
+ * Uses a subdivided per-instance XZ grid riding the exact `hbOceanDisp` + SDF coast damping & shoaling as `OCEAN_VERT`,
+ * drawn at `renderOrder = 61` with alpha-preserving `CustomBlending` (`ZeroFactor` / `OneFactor` on alpha).
  */
 const MAX_COLLARS = 1024;
 const SEG_X = 6;
@@ -32,6 +32,10 @@ export interface WakeCollarUniforms {
   uSunColor: THREE.IUniform<THREE.Color>;
   uAmbient: THREE.IUniform<THREE.Color>;
   uNight: THREE.IUniform<number>;
+  uFftAtlas?: THREE.IUniform<THREE.DataArrayTexture>;
+  uFftOn?: THREE.IUniform<number>;
+  uFftScales?: THREE.IUniform<THREE.Vector4>;
+  uFftWeights?: THREE.IUniform<THREE.Vector4>;
 }
 
 export const WAKE_COLLAR_VERT = /* glsl */ `
@@ -53,7 +57,7 @@ varying vec3 vWorld;
 varying float vOarPhase;
 varying float vCamD;
 
-${wavesGLSL()}
+${OCEAN_DISP_GLSL}
 
 void main() {
   float hl = aColB.x;
@@ -76,15 +80,19 @@ void main() {
   vec2 local = vec2(mix(xMin, xMax, t.x), mix(-yExt, yExt, t.y));
   vec2 xz = aColA.xy + fwd * local.x + stbd * local.y;
 
-  // Match OCEAN_VERT Gerstner displacement and SDF coast damping identically so collars never float or clip
+  // Match OCEAN_VERT FFT/Gerstner displacement and SDF coast damping identically so collars never float or clip
   vec2 suv = (xz - uSdfBounds.xy) / (uSdfBounds.zw - uSdfBounds.xy);
   float inside = step(0.0, suv.x) * step(suv.x, 1.0) * step(0.0, suv.y) * step(suv.y, 1.0);
-  float coast = mix(200.0, (mix(textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0).r, 1.0, smoothstep(470.0, 560.0, length(xz - uSceneCenter))) - 0.5) * 128.0, inside);
+  vec4 sdf = textureLod(uSdf, clamp(suv, 0.0, 1.0), 0.0);
+  float mf = smoothstep(470.0, 560.0, length(xz - uSceneCenter));
+  float coast = mix(200.0, (mix(sdf.r, 1.0, mf) - 0.5) * 128.0, inside);
+  float depth = mix(40.0, mix(sdf.g, 1.0, mf) * 40.0, inside);
   float damp = smoothstep(0.0, 34.0, coast) * 0.9 + 0.1 * smoothstep(-2.0, 2.0, coast);
   float camD = length(xz - uCameraPos.xz);
   float amp = uSea.x * damp * (1.0 - smoothstep(2500.0, 5000.0, camD));
 
-  vec3 p = vec3(xz.x, 0.0, xz.y) + gerstnerDisp(xz, uTime, amp);
+  vec2 shoreN = uFftOn > 0.5 ? hbShoreNormal(uSdf, suv, coast, inside) : vec2(0.0);
+  vec3 p = vec3(xz.x, 0.0, xz.y) + hbOceanDisp(xz, uTime, amp, damp, camD, depth, coast, shoreN);
   // Subtle distance-scaled lift clears ocean triangle depth without visibly floating off the waterline
   p.y += 0.04 + clamp(camD * 0.00018, 0.0, 0.14);
 
@@ -275,7 +283,13 @@ export class WakeCollars implements WakeCollarService {
   private count = 0;
   private dirty = false;
 
+  private readonly fftFallback: THREE.DataArrayTexture | null;
+
   constructor(shared: WakeCollarUniforms) {
+    this.fftFallback = shared.uFftAtlas ? null : Object.assign(
+      new THREE.DataArrayTexture(new Uint8Array(6 * 4), 1, 1, 6),
+      { needsUpdate: true },
+    );
     this.geo = createCollarGrid();
     this.bufA = new Float32Array(MAX_COLLARS * 4);
     this.bufB = new Float32Array(MAX_COLLARS * 4);
@@ -294,6 +308,10 @@ export class WakeCollars implements WakeCollarService {
       fragmentShader: WAKE_COLLAR_FRAG,
       uniforms: {
         ...shared,
+        uFftAtlas: { value: null },
+        uFftOn: shared.uFftOn ?? { value: 0 },
+        uFftScales: shared.uFftScales ?? { value: new THREE.Vector4(1 / 509, 1 / 97, 1 / 17.3, 1) },
+        uFftWeights: shared.uFftWeights ?? { value: new THREE.Vector4(1, 0.6, 0.35, 0.5) },
         uFoamCol: { value: new THREE.Color(SEA_PALETTE.foam) },
         uFoamNight: { value: new THREE.Color(SEA_PALETTE.foamNight) },
       },
@@ -302,7 +320,6 @@ export class WakeCollars implements WakeCollarService {
       depthWrite: false,
       fog: false,
       side: THREE.FrontSide,
-      // Water-alpha-preserving CustomBlending: never disturbs MirrorPass's water mask in framebuffer alpha
       blending: THREE.CustomBlending,
       blendEquation: THREE.AddEquation,
       blendSrc: THREE.SrcAlphaFactor,
@@ -311,6 +328,7 @@ export class WakeCollars implements WakeCollarService {
       blendSrcAlpha: THREE.ZeroFactor,
       blendDstAlpha: THREE.OneFactor,
     });
+    this.mat.uniforms.uFftAtlas = shared.uFftAtlas ?? { value: this.fftFallback! };
 
     this.mesh = new THREE.Mesh(this.geo, this.mat);
     this.mesh.name = "ocean-wake-collars";
@@ -381,5 +399,6 @@ export class WakeCollars implements WakeCollarService {
     this.mesh.removeFromParent();
     this.geo.dispose();
     this.mat.dispose();
+    this.fftFallback?.dispose();
   }
 }

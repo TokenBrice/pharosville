@@ -74,6 +74,8 @@ export class GpuPassProfiler {
           label = label === "scene/ocean" ? "scene-capture" : "depth-copy";
         } else if (key === "generateMipmap" && label === "scene/ocean") {
           label = "scene-capture/mips";
+        } else if (key === "generateMipmap" && (args[0] === (gl as WebGL2RenderingContext).TEXTURE_2D_ARRAY || label.startsWith("fft-"))) {
+          label = "fft-atlas/mips";
         } else {
           label = `${label}${key === "clear" ? "/clear" : key === "generateMipmap" ? "/mips" : ""}`;
         }
@@ -99,34 +101,62 @@ export class GpuPassProfiler {
     renderer.render = (scene, camera) => {
       const previous = this.label;
       if (scene === window.__harbour?.ctx.scene) {
-        scene.traverse((object) => {
-          if (this.hooked.has(object) || (!(object as THREE.Mesh).isMesh && !(object as THREE.Points).isPoints && !(object as THREE.Line).isLine)) return;
-          this.hooked.add(object);
-          const before = object.onBeforeRender, after = object.onAfterRender;
-          const beforeShadow = object.onBeforeShadow, afterShadow = object.onAfterShadow;
-          object.onBeforeShadow = (...args) => {
-            beforeShadow.apply(object, args);
-            const material = args[5];
-            this.materialLabel = `${material.name || material.type}#${material.uuid}/caster:${object.name || object.uuid}`;
-          };
-          object.onAfterShadow = (...args) => { afterShadow.apply(object, args); this.materialLabel = "unattributed"; };
-          object.onBeforeRender = (...args) => {
-            const material = args[4] as THREE.Material;
-            this.materialLabel = `${material.name || material.type}#${material.uuid}${object.castShadow ? "/caster" : ""}`;
-            let group = object;
-            while (group.parent && group.parent !== scene) group = group.parent;
-            this.label = `scene/${group.name || object.name || (args[4] as THREE.Material).name || object.type}`;
-            before.apply(object, args);
-          };
-          object.onAfterRender = (...args) => { after.apply(object, args); this.label = "scene"; this.materialLabel = "unattributed"; };
-          this.undo.push(() => { object.onBeforeRender = before; object.onAfterRender = after; object.onBeforeShadow = beforeShadow; object.onAfterShadow = afterShadow; });
-        });
-        this.label = "scene";
+        const isPlanarMirror = camera !== window.__harbour?.ctx.camera && previous === "scene/ocean";
+        if (!isPlanarMirror) {
+          scene.traverse((object) => {
+            if (this.hooked.has(object) || (!(object as THREE.Mesh).isMesh && !(object as THREE.Points).isPoints && !(object as THREE.Line).isLine)) return;
+            this.hooked.add(object);
+            const before = object.onBeforeRender, after = object.onAfterRender;
+            const beforeShadow = object.onBeforeShadow, afterShadow = object.onAfterShadow;
+            object.onBeforeShadow = (...args) => {
+              beforeShadow.apply(object, args);
+              const material = args[5];
+              this.materialLabel = `${material.name || material.type}#${material.uuid}/caster:${object.name || object.uuid}`;
+            };
+            object.onAfterShadow = (...args) => { afterShadow.apply(object, args); this.materialLabel = "unattributed"; };
+            object.onBeforeRender = (...args) => {
+              const material = args[4] as THREE.Material;
+              this.materialLabel = `${material.name || material.type}#${material.uuid}${object.castShadow ? "/caster" : ""}`;
+              if (this.label !== "planar-mirror") {
+                let group = object;
+                while (group.parent && group.parent !== scene) group = group.parent;
+                this.label = `scene/${group.name || object.name || (args[4] as THREE.Material).name || object.type}`;
+              }
+              before.apply(object, args);
+            };
+            object.onAfterRender = (...args) => {
+              after.apply(object, args);
+              if (this.label !== "planar-mirror") this.label = "scene";
+              this.materialLabel = "unattributed";
+            };
+            this.undo.push(() => { object.onBeforeRender = before; object.onAfterRender = after; object.onBeforeShadow = beforeShadow; object.onAfterShadow = afterShadow; });
+          });
+        }
+        this.label = isPlanarMirror ? "planar-mirror" : "scene";
       } else {
         const mesh = scene.children.find((o) => (o as THREE.Mesh).material) as THREE.Mesh | undefined;
         const mat = mesh?.material as THREE.ShaderMaterial | undefined;
         const u = mat?.uniforms;
-        this.label = (mat && this.materialLabels.get(mat)) || (mat?.name === "hb_caustics" ? "caustics-map" : u?.uLobes ? "cloud-atlas" : u?.uRange && u?.uBanks ? "sky-band" : u?.uSpread && u?.uPrev ? "wake-decay" : u?.uTrail ? (u.uTrail.value ? "wake-trail" : "wake-live") : u?.uBounds && mat?.fragmentShader.includes("vMount") ? "light-pool" : `${this.composerLabel || "offscreen"}/${mat?.name || mat?.type || "draw"}`);
+        const n = mat?.name;
+        this.label = (mat && this.materialLabels.get(mat)) || (
+          n === "hb_caustics" ? "caustics-map"
+          : n === "hb_fft_h0" ? "fft-h0"
+          : n === "hb_fft_spec" ? "fft-spec"
+          : n === "hb_fft_bfly" ? "fft-bfly"
+          : n === "hb_fft_pack" ? "fft-pack"
+          : n === "hb_hiz_init" || n === "hb_hiz_mip" ? "hiz-depth"
+          : n === "hb_ssr_trace" ? "ssr-trace"
+          : n === "hb_ssr_denoise" ? "ssr-denoise"
+          : n === "hb_wake_decay_rgba" ? "wake-decay"
+          : n === "hb_wake_stationary" ? "wake-stationary"
+          : n === "hb_wake_ribbon" ? "wake-ribbons"
+          : u?.uLobes ? "cloud-atlas"
+          : u?.uRange && u?.uBanks ? "sky-band"
+          : u?.uSpread && u?.uPrev ? "wake-decay"
+          : u?.uTrail ? (u.uTrail.value ? "wake-trail" : "wake-live")
+          : u?.uBounds && mat?.fragmentShader.includes("vMount") ? "light-pool"
+          : `${this.composerLabel || "offscreen"}/${n || mat?.type || "draw"}`
+        );
       }
       const rt = renderer.getRenderTarget();
       if (rt) this.targets.set(rt, this.label);
