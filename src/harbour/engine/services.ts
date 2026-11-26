@@ -15,6 +15,7 @@ import type { LightsStore } from "../lights/lights-service";
 import type { EventsService } from "../model/event-hub";
 import type { HarbourModel } from "../model/types";
 import type { OceanService } from "../ocean/ocean-system";
+import type { SprayService } from "../ocean/spray-system";
 import type { Bounds4 } from "../ocean/sea-sdf";
 import type { SharedFxTextures } from "../ocean/textures";
 import type { WakeService } from "../ocean/wake";
@@ -94,6 +95,7 @@ export interface ServiceMap {
   simclock: SimulationClock;
   sky: SkyService;
   sound: SoundController;
+  spray: SprayService;
   sun: SunRig;
   wake: WakeService;
   wakeCollars: WakeCollarService;

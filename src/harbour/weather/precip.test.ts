@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { getBeamUniforms } from "../beam/uniforms";
 import { Lightning } from "./lightning";
-import { FAR_FLOOR, FAR_STREAK, farDepthAlpha, farStreakShare, PRECIP_BUDGET, Precipitation } from "./precip";
+import { FAR_FLOOR, FAR_STREAK, farDepthAlpha, farStreakShare, PRECIP_BUDGET, Precipitation, SQUALL_COUNT, SQUALL_FRAG, SQUALL_THRESHOLD, SQUALL_VERT } from "./precip";
 import { WeatherSystem } from "./weather-system";
 import * as oceanTextures from "../ocean/textures";
 import type { EngineContext } from "../engine/types";
@@ -226,5 +226,86 @@ describe("atmospheric rain, splashes and storm lightning", () => {
     expect(groundMat.blendSrcAlpha).toBe(THREE.ZeroFactor);
     expect(groundMat.blendDstAlpha).toBe(THREE.OneFactor);
     p.dispose();
+  });
+
+  it("gates volumetric storm squall curtains strictly to stormSea > 0.65, disposes cleanly, and passes B07/C04", () => {
+    const p = makePrecip();
+    const scene = new THREE.Scene();
+    scene.add(p.fall, p.ground, p.squall);
+
+    const squallGeo = p.squall.geometry as THREE.InstancedBufferGeometry;
+    const squallMat = p.squall.material as THREE.ShaderMaterial;
+    expect(p.squall.name).toBe("weather-squall");
+    expect(p.squall.renderOrder).toBe(78);
+    expect(p.squall.frustumCulled).toBe(false);
+    expect(squallMat.name).toBe("hb_weather_squall");
+    expect(squallMat.transparent).toBe(true);
+    expect(squallMat.depthWrite).toBe(false);
+    expect(squallMat.forceSinglePass).toBe(true);
+    expect(squallMat.blending).toBe(THREE.CustomBlending);
+    expect(squallMat.blendSrcAlpha).toBe(THREE.ZeroFactor);
+    expect(squallMat.blendDstAlpha).toBe(THREE.OneFactor);
+    expect(SQUALL_COUNT).toBeGreaterThanOrEqual(18);
+    expect(SQUALL_COUNT).toBeLessThanOrEqual(24);
+    expect(SQUALL_THRESHOLD).toBe(0.65);
+
+    const cam = new THREE.PerspectiveCamera(40, 1.6, 1, 5000);
+    cam.position.set(0, 260, 520);
+    const frame = {
+      camera: cam,
+      distance: 650,
+      target: new THREE.Vector3(),
+      rain: 0.85,
+      snow: 0,
+      wind: new THREE.Vector2(0.8, -0.5),
+      spray: 0.6,
+      flash: 0.2,
+      ambient: new THREE.Color(0.35, 0.4, 0.48),
+      time: 12,
+      viewport: new THREE.Vector2(1600, 1000),
+      budget: PRECIP_BUDGET.high,
+    };
+
+    // Calm / moderate seas (<= 0.65): strictly hidden with 0 instances
+    for (const stormSea of [undefined, 0, 0.35, 0.65]) {
+      p.update({ ...frame, ...(stormSea === undefined ? {} : { stormSea }) });
+      expect(p.squall.visible).toBe(false);
+      expect(squallGeo.instanceCount).toBe(0);
+    }
+
+    // Heavy storm sea (> 0.65): activates smoothly across 0.65..0.92
+    p.update({ ...frame, stormSea: 0.72 });
+    expect(p.squall.visible).toBe(true);
+    expect(squallGeo.instanceCount).toBe(SQUALL_COUNT);
+    expect(squallMat.uniforms.uStormSea.value).toBeCloseTo(0.72, 5);
+
+    p.update({ ...frame, stormSea: 0.95 });
+    expect(p.squall.visible).toBe(true);
+    expect(squallGeo.instanceCount).toBe(SQUALL_COUNT);
+    expect(squallMat.uniforms.uStormSea.value).toBeCloseTo(0.95, 5);
+
+    // Dropping back to <= 0.65 immediately disables drawing
+    p.update({ ...frame, stormSea: 0.65 });
+    expect(p.squall.visible).toBe(false);
+    expect(squallGeo.instanceCount).toBe(0);
+
+    // B07 / C04 checks on SQUALL_VERT and SQUALL_FRAG: ascending smoothstep only, zero pow(..., 2.0)
+    const src = `${SQUALL_VERT}\n${SQUALL_FRAG}`;
+    expect(SQUALL_VERT).toContain("smoothstep(0.65, 0.92, uStormSea)");
+    expect(SQUALL_FRAG).toContain("uAmbRain");
+    expect(SQUALL_FRAG).toContain("uFlashK");
+    const smoothRe = /(?<![\w.])smoothstep\s*\(([^,]+),([^,]+),/g;
+    for (let m = smoothRe.exec(src); m; m = smoothRe.exec(src)) {
+      const e0 = Number(m[1]!.trim());
+      const e1 = Number(m[2]!.trim());
+      if (Number.isFinite(e0) && Number.isFinite(e1)) {
+        expect(e0 < e1, `smoothstep(${m[1]}, ${m[2]})`).toBe(true);
+      }
+    }
+    expect(src).not.toMatch(/\bpow\s*\([^)]*,\s*2(?:\.0*)?\s*\)/);
+
+    // Disposal detaches squall mesh from scene
+    p.dispose();
+    expect(scene.getObjectByName("weather-squall")).toBeUndefined();
   });
 });

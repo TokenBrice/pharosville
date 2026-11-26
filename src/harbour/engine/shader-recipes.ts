@@ -13,7 +13,11 @@ import { CAUSTICS_VERT, CAUSTICS_FRAG } from "../ocean/caustics-pass";
 import { FFT_FULLSCREEN_VERT, FFT_H0_FRAG, FFT_SPEC_FRAG, FFT_BFLY_FRAG, FFT_PACK_DISP_FRAG, FFT_PACK_SLOPE_FRAG } from "../ocean/fft/fft-system";
 import { WAKE_DECAY_RGBA_FRAG, WAKE_STATIONARY_VERT, WAKE_STATIONARY_FRAG } from "../ocean/wake";
 import { WAKE_RIBBON_VERT, WAKE_RIBBON_FRAG } from "../ocean/wake-ribbons";
+import { SPRAY_VERT, SPRAY_FRAG } from "../ocean/spray-system";
+import { SQUALL_VERT, SQUALL_FRAG } from "../weather/precip";
 import { HIZ_FULLSCREEN_VERT, HIZ_INIT_FRAG, HIZ_MIP_FRAG, SSR_TRACE_FRAG, SSR_DENOISE_FRAG } from "../ocean/hiz-ssr";
+import { FSR_VERT, FSR_EASU_FRAG, FSR_RCAS_FRAG } from "./shaders/fsr1";
+import { GOD_RAYS_VERT, GOD_RAYS_MASK_FRAG, GOD_RAYS_BLUR_FRAG, GodRaysEffect } from "./shaders/god-rays";
 import { NO_SHADOW } from "../world/sun-shadow";
 import { FULLSCREEN_VERT } from "../ocean/gpu-bake";
 import { BeamEffect, BeamSystem, ShimmerEffect, HALO_VERT, HALO_FRAG } from "../beam/beam-system";
@@ -142,10 +146,16 @@ export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void 
     raw("ocean/wake-decay-rgba", FULLSCREEN_VERT, WAKE_DECAY_RGBA_FRAG);
     raw("ocean/wake-stationary", WAKE_STATIONARY_VERT, WAKE_STATIONARY_FRAG);
     raw("ocean/wake-ribbon", WAKE_RIBBON_VERT, WAKE_RIBBON_FRAG);
+    raw("ocean/spray", SPRAY_VERT, SPRAY_FRAG);
+    raw("weather/squall", SQUALL_VERT, SQUALL_FRAG);
     raw("ocean/hiz-init", HIZ_FULLSCREEN_VERT, HIZ_INIT_FRAG);
     raw("ocean/hiz-mip", HIZ_FULLSCREEN_VERT, HIZ_MIP_FRAG);
     raw("ocean/ssr-trace", HIZ_FULLSCREEN_VERT, SSR_TRACE_FRAG);
     raw("ocean/ssr-denoise", HIZ_FULLSCREEN_VERT, SSR_DENOISE_FRAG);
+    raw("post/fsr-easu", FSR_VERT, FSR_EASU_FRAG);
+    raw("post/fsr-rcas", FSR_VERT, FSR_RCAS_FRAG);
+    raw("post/godrays-mask", GOD_RAYS_VERT, GOD_RAYS_MASK_FRAG);
+    raw("post/godrays-blur", GOD_RAYS_VERT, GOD_RAYS_BLUR_FRAG);
     raw("beam/halo", HALO_VERT, HALO_FRAG);
     for (const [name, vertex, fragment] of [
       ["flame", FLAME_VERT, FLAME_FRAG], ["ember", EMBER_VERT, EMBER_FRAG], ["glow", GLOW_VERT, GLOW_FRAG], ["plume", PLUME_VERT, PLUME_FRAG],
@@ -159,8 +169,9 @@ export function visitShaderRecipes(visit: (recipe: ShaderRecipe) => void): void 
     beamPass.recompile(); emit("beam/shimmer-shaft", beamPass.fullscreenMaterial); beamPass.dispose();
     const lut = new THREE.Data3DTexture(new Uint16Array(32 ** 3 * 4), 32, 32, 32);
     lut.format = THREE.RGBAFormat; lut.type = THREE.HalfFloatType; // as engine/post.ts builds the grade LUT
-    const post = new EffectPass(camera, new ToneMappingEffect({ mode: ToneMappingMode.AGX }),
+    const godRays = new GodRaysEffect("high");
+    const post = new EffectPass(camera, godRays, new ToneMappingEffect({ mode: ToneMappingMode.AGX }),
       new LUT3DEffect(lut, { inputColorSpace: THREE.SRGBColorSpace }), new VignetteEffect({ offset: 0.28, darkness: 0.42 }), new DitherEffect(0));
-    post.recompile(); emit("post/grade-dither", post.fullscreenMaterial); post.dispose(); lut.dispose();
+    post.recompile(); emit("post/grade-dither", post.fullscreenMaterial); post.dispose(); godRays.dispose(); lut.dispose();
   } finally { ship.material.dispose(); ship.depth.dispose(); mats.dispose(); texture.dispose(); }
 }

@@ -117,6 +117,7 @@ export class BeamSystem implements WorldSystem {
     uWind: new THREE.Uniform(0.3),
     uNear: new THREE.Uniform(100),
     uSteps: new THREE.Uniform(28),
+    uPrecip: new THREE.Uniform(0),
     uNoise: new THREE.Uniform(null as THREE.Texture | null),
     uSkyRef: new THREE.Uniform(new THREE.Color()),
     uSkyT: new THREE.Uniform(1e9),
@@ -145,7 +146,9 @@ export class BeamSystem implements WorldSystem {
     this.shimmer = new ShimmerEffect(new Map(Object.entries(this.SH)) as Map<string, THREE.Uniform>);
     this.pass = new EffectPass(ctx.camera, this.shimmer, this.effect);
     this.pass.enabled = false;
-    ctx.composer.addPass(this.pass, Math.max(1, ctx.composer.passes.length - 2));
+    const post = ctx.services.get("post");
+    if (post?.insertBeforeMain) post.insertBeforeMain(this.pass);
+    else ctx.composer.addPass(this.pass, Math.max(1, ctx.composer.passes.length - 2));
 
     this.haloMat = new THREE.ShaderMaterial({
       vertexShader: HALO_VERT, fragmentShader: HALO_FRAG,
@@ -243,6 +246,7 @@ export class BeamSystem implements WorldSystem {
     U.uNear.value = THREE.MathUtils.clamp(this.lantern.distanceTo(cam) * 0.55, 40, 320);
     const sky = ctx.services.get("sky");
     U.uWind.value = sky?.shared?.uWeatherSea.value.y ?? 0.3;
+    U.uPrecip.value = ctx.uniforms.uPrecip.value.x + ctx.uniforms.uPrecip.value.y;
     U.uCamWorld.value.copy(ctx.camera.matrixWorld);
     U.uInvProj.value.copy(ctx.camera.projectionMatrixInverse);
     // heat shimmer: a close-range read (the lantern must be big enough on screen to bend)

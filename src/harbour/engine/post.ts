@@ -6,6 +6,9 @@ import { DITHER_FRAG } from "./shaders/dither";
 export { DITHER_FRAG } from "./shaders/dither";
 import { GtaoEffect } from "./shaders/gtao";
 export { GtaoEffect, GTAO_AO_FRAG, GTAO_BLUR_FRAG, GTAO_COMPOSITE_FRAG, gtaoDirsFor, gtaoStepsFor } from "./shaders/gtao";
+import { GodRaysEffect } from "./shaders/god-rays";
+export { GodRaysEffect, GOD_RAYS_MASK_FRAG, GOD_RAYS_BLUR_FRAG, GOD_RAYS_COMPOSITE_FRAG, godRaysDawnDuskWeight, godRaysTapsFor } from "./shaders/god-rays";
+import type { Fsr1Pass } from "./shaders/fsr1";
 import * as THREE from "three";
 import {
   BloomEffect, Effect, EffectComposer, EffectPass, KernelSize, LUT3DEffect, type MipmapBlurPass, Pass, RenderPass, SMAAEffect, SMAAPreset,
@@ -15,6 +18,10 @@ import type { CameraRig } from "./camera-rig";
 import type { Grade, TimeOfDay } from "./time-of-day";
 import type { QualitySettings } from "./quality";
 import type { EngineContext, PreparationEntry, PreparationService } from "./types";
+import type { SkyService } from "../sky/sky-system";
+import type { WorldUniforms } from "./uniforms";
+import { extraEnabled } from "./extras";
+import { abortable } from "./transport";
 import { isPreparationAbort, preparationMaterial } from "./prepare";
 import { StaticDepthPass } from "../world/depth-prepass";
 import { getHarbourMaterials } from "../world/materials";
@@ -213,6 +220,7 @@ export function tiltBand(camera: THREE.Camera, lantern: THREE.Vector3, dock: rea
 
 export class PostChain {
   readonly gtao: GtaoEffect;
+  readonly godRays: GodRaysEffect;
   readonly bloom: HarbourBloomEffect;
   readonly toneMapping: ToneMappingEffect;
   readonly tiltShift: TiltShiftEffect;
@@ -222,6 +230,17 @@ export class PostChain {
   readonly dither: DitherEffect;
   private readonly scrub = new NanScrubPass();
   private readonly main: EffectPass;
+  private readonly smaaPass: EffectPass;
+  private fsrPass: Fsr1Pass | null = null;
+  private fsrLoad: Promise<boolean> | null = null;
+  private fsrReady = false;
+  private fsrActive = false;
+  private fsrPrepRegistered = false;
+  private fsrBatch: { dispose(): void } | null = null;
+  private sealed = false;
+  private worldPrepared = false;
+  private disposed = false;
+  private readonly unregFsrPrep: Array<() => void> = [];
   private readonly gradeLut = new SlicedGradeLUT((texture) => { this.lut.uniforms.get("lut")!.value = texture; });
   private preparation?: PreparationService;
   private readonly lutKey = new Float32Array(15).fill(-1);
@@ -249,6 +268,8 @@ export class PostChain {
     composer.addPass(new RenderPass(scene, camera));
     composer.addPass(this.scrub);
     this.gtao = new GtaoEffect(camera);
+    this.godRays = new GodRaysEffect("high");
+    this.godRays.setEnabled(extraEnabled("godrays"));
     this.tiltShift = new TiltShiftEffect({ focusArea: 0.6, feather: 0.38, offset: 0.06, kernelSize: KernelSize.MEDIUM, resolutionScale: 0.5 });
     this.tiltShift.blendMode.opacity.value = 0;
     this.bloom = new HarbourBloomEffect({ intensity: 0.6, luminanceThreshold: 1.3, luminanceSmoothing: 0.30, mipmapBlur: true, radius: 0.68, levels: 8 });
@@ -260,10 +281,33 @@ export class PostChain {
     this.tiltShift.update = (r, input, dt) => { if (this.tiltShift.blendMode.opacity.value > 0.002) tiltUpdate(r, input, dt); };
     const toothQ = typeof location !== "undefined" ? new URLSearchParams(location.search).get("tooth") : null;
     this.dither = new DitherEffect(toothQ === null ? PAPER_TOOTH * 0.015 : toothQ === "0" ? 0 : 0.015);
-    this.main = new EffectPass(camera, this.gtao, this.tiltShift, this.bloom, this.toneMapping, this.lut, this.vignette, this.dither);
+    this.main = new EffectPass(camera, this.gtao, this.godRays, this.tiltShift, this.bloom, this.toneMapping, this.lut, this.vignette, this.dither);
     composer.addPass(this.main);
     this.smaa = new SMAAEffect({ preset: SMAAPreset.HIGH });
-    composer.addPass(new EffectPass(camera, this.smaa));
+    this.smaaPass = new EffectPass(camera, this.smaa);
+    composer.addPass(this.smaaPass);
+    // Explicit renderToScreen ownership prevents late addPass() calls from handing screen output to an inert FSR pass.
+    composer.autoRenderToScreen = false;
+    this.smaaPass.renderToScreen = true;
+  }
+
+  /** Inserts a scene-linear effect pass (e.g. BeamPass) strictly before NanScrubPass and Main (Bloom/AgX/LUT). */
+  insertBeforeMain(pass: Pass): void {
+    const passes = this.composer.passes as Pass[];
+    const scrubIdx = passes.indexOf(this.scrub);
+    const mainIdx = passes.indexOf(this.main);
+    const anchor = mainIdx >= 0 ? (scrubIdx >= 0 && scrubIdx < mainIdx ? scrubIdx : mainIdx) : Math.max(1, passes.length - 1);
+    this.composer.addPass(pass, Math.max(1, anchor));
+    pass.renderToScreen = false;
+    this.syncScreenPass();
+  }
+
+  private syncScreenPass(): void {
+    if (this.smaaPass) this.smaaPass.renderToScreen = !this.fsrActive;
+    if (this.fsrPass) {
+      this.fsrPass.enabled = this.fsrActive;
+      this.fsrPass.renderToScreen = this.fsrActive;
+    }
   }
 
   installDepthPrepass(ctx: EngineContext): void {
@@ -277,12 +321,17 @@ export class PostChain {
    * the scrub goes right ahead of the bloom pass so it cleans whatever those scene-linear passes wrote.
    */
   seal(): void {
+    this.sealed = true;
     const passes = this.composer.passes as Pass[];
-    // Systems insert scene-linear effects (StaleFog, BeamPass) after RenderPass at index 1.
+    // Systems insert scene-linear effects (StaleFog, BeamPass) before Main/NanScrub.
     // Add depth prepass only after those insertions, keeping it adjacent to the colour pass (StaleFog sits at index 2).
     if (this.depthPrepass) this.composer.addPass(this.depthPrepass, 0);
     passes.splice(passes.indexOf(this.scrub), 1);
     passes.splice(passes.indexOf(this.main), 0, this.scrub);
+    if (this.fsrPass && !passes.includes(this.fsrPass)) {
+      this.composer.addPass(this.fsrPass);
+    }
+    this.syncScreenPass();
   }
 
   /** Quality tier hooks (same art; cheaper effects). */
@@ -291,8 +340,130 @@ export class PostChain {
     this.tier = q.tier;
     this.bloom.setLite(q.tier === "low");
     this.gtao?.setQuality(q.gtao);
+    this.godRays?.setQuality(q.tier === "low" ? "off" : q.tier);
     setBloomLevels(this.bloom.mipmapBlurPass, q.bloomLevels);
     this.smaa.applyPreset(q.smaa === "high" ? SMAAPreset.HIGH : q.smaa === "medium" ? SMAAPreset.MEDIUM : SMAAPreset.LOW);
+  }
+
+  isFsrReady(): boolean { return this.fsrPass !== null && this.fsrReady && this.sealed; }
+  isFsrActive(): boolean { return this.fsrActive; }
+  /** True while FSR1 is in flight or already ready (clears on abort/failure so interrupted prep stays retryable). */
+  isFsrLoadingOrLoaded(): boolean { return this.fsrReady || this.fsrLoad !== null; }
+
+  /** Preparation entries needed before live FSR1 handoff: EASU, RCAS, and offscreen linear SMAA composite variant. */
+  private fsrPreparationEntries(pass: Fsr1Pass): PreparationEntry[] {
+    const entries = pass.preparationEntries();
+    const smaa = this.smaaPass as unknown as { scene?: THREE.Scene; camera?: THREE.Camera } | undefined;
+    if (smaa?.scene && smaa.camera && this.composer?.outputBuffer) {
+      entries.push({ root: smaa.scene, camera: smaa.camera, target: () => this.composer.outputBuffer, scene: smaa.scene });
+    }
+    return entries;
+  }
+
+  /**
+   * Lazily loads AMD FSR 1.0 (EASU + RCAS) only when rendering below display DPR (H15).
+   * During boot (`precompileNow = false`), attaches inside `seal()` so scene-linear passes
+   * always land before `Main` and `Engine.initialize()` compiles EASU+RCAS inside `prepareWorld()`.
+   * On a live post-boot transition (`precompileNow = true`), precompiles EASU, RCAS, and SMAA's
+   * offscreen linear output variant via `ProgramPreparation` (retrying supersession aborts and
+   * requiring `batch.status === "complete"`) before marking FSR ready so no visible frame stalls.
+   */
+  ensureFsr(signal?: AbortSignal, precompileNow = false): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false);
+    if (this.fsrPass && this.fsrReady) return Promise.resolve(true);
+    if (!this.fsrLoad) {
+      this.fsrLoad = (async () => {
+        try {
+          const { Fsr1Pass } = await abortable(import("./shaders/fsr1"), signal);
+          if (this.disposed || signal?.aborted) {
+            this.fsrLoad = null;
+            return false;
+          }
+          let pass = this.fsrPass;
+          if (!pass) {
+            pass = new Fsr1Pass();
+            pass.enabled = false;
+            pass.renderToScreen = false;
+            this.fsrPass = pass;
+          }
+          const prepEntries = this.fsrPreparationEntries(pass);
+          if (this.preparation && this.worldPrepared && !this.fsrPrepRegistered) {
+            for (const entry of prepEntries) this.unregFsrPrep.push(this.preparation.register(entry));
+            this.fsrPrepRegistered = true;
+          }
+          if ((precompileNow || this.worldPrepared) && this.preparation) {
+            while (!this.disposed && !signal?.aborted) {
+              try {
+                const batch = await this.preparation.prepare(prepEntries, undefined, signal);
+                if (this.disposed || signal?.aborted) {
+                  batch.dispose();
+                  this.fsrLoad = null;
+                  return false;
+                }
+                if (batch.status !== "complete") {
+                  batch.dispose();
+                  this.fsrLoad = null;
+                  return false;
+                }
+                this.fsrBatch?.dispose();
+                this.fsrBatch = batch;
+                break;
+              } catch (error) {
+                if (!isPreparationAbort(error) || this.disposed || signal?.aborted) throw error;
+              }
+            }
+          }
+          if (this.disposed || signal?.aborted) {
+            this.fsrLoad = null;
+            return false;
+          }
+          if (this.sealed && !(this.composer.passes as Pass[]).includes(pass)) {
+            this.composer.addPass(pass);
+          }
+          this.fsrReady = true;
+          this.syncScreenPass();
+          return true;
+        } catch {
+          this.fsrLoad = null;
+          return false;
+        }
+      })();
+    }
+    return this.fsrLoad;
+  }
+
+  /**
+   * Decouples internal render DPR from native display DPR using manual composer sizing + atomic
+   * `smaaPass.renderToScreen` / `fsrPass.renderToScreen` handoff (§2.3 / H15). Returns true if FSR1 is active.
+   */
+  applyDisplayScaling(width: number, height: number, renderDpr: number, displayDpr: number): boolean {
+    if (!this.fsrPass || !this.fsrReady || !this.sealed || renderDpr >= displayDpr * 0.92) {
+      this.disableFsr();
+      return false;
+    }
+    this.renderer.setDrawingBufferSize(width, height, displayDpr);
+    const renderW = Math.max(1, Math.floor(width * renderDpr));
+    const renderH = Math.max(1, Math.floor(height * renderDpr));
+    const displayW = Math.max(1, Math.floor(width * displayDpr));
+    const displayH = Math.max(1, Math.floor(height * displayDpr));
+    this.composer.inputBuffer.setSize(renderW, renderH);
+    this.composer.outputBuffer.setSize(renderW, renderH);
+    const depthRT = (this.composer as unknown as { depthRenderTarget?: THREE.WebGLRenderTarget | null }).depthRenderTarget;
+    depthRT?.setSize(renderW, renderH);
+    for (const pass of this.composer.passes) {
+      if (pass !== this.fsrPass) pass.setSize(renderW, renderH);
+    }
+    this.fsrPass.setResolutions(renderW, renderH, displayW, displayH);
+    this.fsrActive = true;
+    this.syncScreenPass();
+    return true;
+  }
+
+  /** 0.00 ms bypass at native DPR or `-fsr`: hands screen output cleanly back to SMAA and releases EASU target VRAM. */
+  disableFsr(): void {
+    this.fsrActive = false;
+    this.fsrPass?.resetResolutions();
+    this.syncScreenPass();
   }
 
   /** The arrival barrier includes a complete, uploaded grade before any frame may reveal. */
@@ -315,14 +486,23 @@ export class PostChain {
       entries.push({ root, camera: surface.camera, target, scene: surface.scene });
     };
     if (!next) {
+      this.worldPrepared = true;
       for (const pass of this.composer.passes) {
-        if (!(pass instanceof RenderPass) && !(pass instanceof StaticDepthPass)) add(pass, () => pass.renderToScreen ? null : this.composer.outputBuffer);
+        if (!(pass instanceof RenderPass) && !(pass instanceof StaticDepthPass) && pass !== this.fsrPass) {
+          add(pass, pass === this.smaaPass ? () => null : () => pass.renderToScreen ? null : this.composer.outputBuffer);
+        }
       }
       if (this.gtao) {
         entries.push(
           { root: this.gtao.aoScene, camera: this.gtao.passCamera, target: () => this.gtao.aoTargetA, scene: this.gtao.aoScene },
           { root: this.gtao.blurScene, camera: this.gtao.passCamera, target: () => this.gtao.aoTargetB, scene: this.gtao.blurScene },
         );
+      }
+      if (this.godRays) {
+        for (const entry of this.godRays.preparationEntries()) entries.push(entry);
+      }
+      if (this.fsrPass) {
+        for (const entry of this.fsrPreparationEntries(this.fsrPass)) entries.push(entry);
       }
       const bloom = this.bloom.mipmapBlurPass as MipmapBlurPass & {
         downsamplingMaterial: THREE.Material; upsamplingMaterial: THREE.Material;
@@ -352,11 +532,30 @@ export class PostChain {
     return { entries, dispose: () => { geometry.dispose(); for (const material of owned) material.dispose(); } };
   }
 
-  update(delta: number, tod: TimeOfDay, rig: CameraRig): void {
+  update(delta: number, tod: TimeOfDay, rig: CameraRig, sky?: SkyService, uniforms?: WorldUniforms, reducedMotion = false): void {
     this.renderer.toneMappingExposure = Math.pow(2, tod.exposure);
     this.bloom.intensity = tod.bloomIntensity;
     this.bloom.luminanceMaterial.threshold = tod.bloomThreshold;
     this.gtao?.syncTimeOfDay(this.cam, tod);
+    this.godRays?.setReducedMotion(reducedMotion);
+    if (this.godRays && sky && uniforms) {
+      const horizonR = sky.horizonDistance?.() ?? 1500;
+      const near = this.cam.near, far = this.cam.far;
+      const fwd = this.cam.getWorldDirection(this.focusV);
+      const pitch = Math.asin(THREE.MathUtils.clamp(-fwd.y, -1, 1));
+      const vfov = this.cam.fov * (Math.PI / 180);
+      const topDep = Math.max(-0.45, pitch - vfov * 0.5);
+      const skyMinZ = horizonR * (Math.cos(vfov * 0.5) / Math.max(0.5, Math.cos(topDep)));
+      const dSky = Math.max(near * 2, Math.min(horizonR * 0.94, skyMinZ * 0.96));
+      const skyDepth = 0.5 * ((far + near) / (far - near) - (2 * far * near) / ((far - near) * dSky)) + 0.5;
+      this.godRays.sync(
+        sky.shared.uSunScreen.value,
+        uniforms.uSunColor.value,
+        sky.shared.uWeatherSea.value.x,
+        uniforms.uNight.value,
+        skyDepth,
+      );
+    }
     // Tilt-shift: opt-in miniature cue at overview zoom (off by default, Decision A3); z still drives vignette.
     const z = THREE.MathUtils.smoothstep(rig.distance, this.tiltNear, this.tiltFar);
     this.tiltShift.blendMode.opacity.value = this.tiltShiftEnabled ? z * TILT_OPACITY : 0;
@@ -389,5 +588,19 @@ export class PostChain {
     }
   }
 
-  dispose(): void { this.depthPrepass?.dispose(); this.gtao?.dispose(); this.gradeLut.dispose(); this.scrub.dispose(); }
+  dispose(): void {
+    this.disposed = true;
+    for (const unreg of this.unregFsrPrep) unreg();
+    this.unregFsrPrep.length = 0;
+    this.fsrBatch?.dispose();
+    this.fsrBatch = null;
+    this.fsrPass?.dispose();
+    this.fsrPass = null;
+    this.fsrReady = false;
+    this.depthPrepass?.dispose();
+    this.gtao?.dispose();
+    this.godRays?.dispose();
+    this.gradeLut.dispose();
+    this.scrub.dispose();
+  }
 }

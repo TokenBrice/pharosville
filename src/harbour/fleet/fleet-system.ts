@@ -229,6 +229,8 @@ interface BoatRec {
   swell: Float64Array;
   /** Which way a cat's-paw sheers her on her mooring (±1, from her id: fixed for her lifetime). */
   sheer?: number;
+  /** Previous-frame bow wave elevation (m) for Phase 3 bow-impact spray emission. */
+  prevHBow?: number;
 }
 
 export class FleetSystem implements WorldSystem {
@@ -1174,6 +1176,7 @@ export class FleetSystem implements WorldSystem {
     const wake = ctx.services.get("wake");
     const wakeCollars = ctx.services.get("wakeCollars");
     const wakeRibbons = ctx.services.get("wakeRibbons");
+    const spray = ctx.services.get("spray");
     const dynPool: DynPoolService | undefined = ctx.services.get("dynPool");
     const mirrorFrustum = this.ocean?.mirrorFrustum?.() ?? null;
     const revision = sim?.resumeRevision ?? 0;
@@ -1191,7 +1194,9 @@ export class FleetSystem implements WorldSystem {
     const viewH = this.viewHeight(ctx);
     const pxPerM = viewH / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
     // E04 / E27: the print law and the rig's hairline floor work in CSS px (effective DPR: render px per CSS px)
-    this.uniforms.uFleetScreen!.value.set(viewH, ctx.renderer.getPixelRatio());
+    const resY = ctx.uniforms?.uResolution?.value?.y ?? 0;
+    const renderDpr = viewH > 0 && resY > 1 ? resY / viewH : ctx.renderer.getPixelRatio();
+    this.uniforms.uFleetScreen!.value.set(viewH, renderDpr);
     const dt = Math.max(1e-3, frame.delta);
     const time = this.time = this.clock ? this.clock.step(dt) : frame.elapsed;
     this.uniforms.uFleetTime.value = time;
@@ -1528,6 +1533,8 @@ export class FleetSystem implements WorldSystem {
       // Only way along the hull's own axis makes a wake: warping sideways onto a quay (the titans) left a hull-wide
       // U of trail foam stamped across the hull.
       const fwd = b.vx * fx + b.vz * fz;
+      const bowImpact = b.prevHBow !== undefined ? Math.max(0, (hBow - b.prevHBow) / Math.max(dt, 0.008)) : 0;
+      b.prevHBow = hBow;
       if (!b.wrecked && !onWays) {
         if (wake) {
           // the launch's splash: a burst of foam round her as she takes the water (07-M12)
@@ -1535,6 +1542,7 @@ export class FleetSystem implements WorldSystem {
           if (moving && Math.abs(fwd) > 0.15) {
             wake.stamp(x, z, fx * fwd, fz * fwd, hb, 1, b.loa * 0.5, b.phi);
             wakeRibbons?.pushMoving(b.inst, x, z, fx * fwd, fz * fwd, hb, b.loa * 0.5, 1, ctx.rig?.target?.x ?? 0, ctx.rig?.target?.z ?? 0);
+            spray?.pushBow(x, z, fx * fwd, fz * fwd, b.loa * 0.5, Math.abs(fwd), bowImpact + (b.titan ? 0.65 : 0.2), ctx.rig?.target?.x ?? 0, ctx.rig?.target?.z ?? 0);
             st.moving++;
           }
           else if (ph === PH_ANCHORED && !b.reserve) {
@@ -1558,6 +1566,9 @@ export class FleetSystem implements WorldSystem {
           const rawPh = time * Math.PI + seed * 2.1;
           const oarPhase = collarKind === 1 ? rawPh + 0.28 * Math.sin(rawPh) : 0;
           wakeCollars.push(x, z, fx, fz, b.loa, b.beam, moving ? Math.abs(fwd) : 0, collarKind, oarPhase);
+          if (collarKind === 1 && spray && b.dist < 140) {
+            spray.pushOar(x, z, fx * fwd, fz * fwd, b.beam, b.dist, oarPhase);
+          }
         }
       }
       if (ph === PH_DOCKED || ph === PH_MOORED) st.docked++;
